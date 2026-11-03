@@ -4,7 +4,7 @@
 
 1. **사내 인증 서버:** 사용자 인증 및 RS256 JWT 발급 책임.
 2. **브라우저 확장:** 토큰을 보관하고 API 요청을 보냄. AWS 자격 증명을 읽지 않음.
-3. **API Gateway Lambda Authorizer:** JWT 서명, `iss`, `aud`, `exp`, `iat`, `sub`, `scope` 검증.
+3. **Private REST API TOKEN Authorizer:** JWT 서명, `iss`, `aud`, `exp`, `iat`, `sub`, `scope` 검증 후 `principalId`/IAM Allow·Deny 반환.
 4. **Policy Lambda:** `sub/groups`와 서버 측 계정 allowlist를 대조. 허용된 대상 IAM 역할만 AssumeRole.
 5. **대상 계정:** AWS Organizations Effective Tag Policy 읽기만 허용.
 
@@ -41,6 +41,9 @@
 - HTTPS만 사용하고 엔드포인트·서명 키 변경을 관리한다.
 - 인증 서버 JWKS 키 회전 시 기존·신규 공개키를 일정 기간 중복 제공한다.
 - API Gateway 요청 제한 및 접근 로그를 적용하되 Authorization 헤더, 비밀번호, JWT는 기록하지 않는다.
+- REST API Endpoint Type을 `PRIVATE`로 지정하고, Resource Policy의 `aws:SourceVpce` 조건과 명시적 Deny로 허용 VPCE 외 호출을 차단한다.
+- Interface VPCE의 Security Group·사내망/VPN 라우팅·사설 DNS도 별도 검증한다. VPN 사용 자체가 VPCE 접근을 보장하지 않는다.
+- REST TOKEN Authorizer 캐시는 기본적으로 비활성화(TTL=0). 단일 요청 `methodArn`에 한정한 IAM Allow 정책을 캐시하면 다른 계정 리소스 경로에 사용 시 예상치 못한 거부가 발생할 수 있다.
 - CloudWatch에서 401/403/5xx 급증 및 AssumeRole 거부를 감시한다.
 - `ACCOUNT_AUTHZ_JSON`이 커지면 중앙 권한 저장소로 옮긴다.
 - 브라우저 확장 업데이트, 콘솔 DOM 변화, 라이브러리 취약점 관리 절차를 마련한다.

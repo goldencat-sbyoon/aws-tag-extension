@@ -14,7 +14,7 @@ AWS EC2 콘솔의 Tag Key 입력란에 AWS Organizations **Effective Tag Policy*
 ## 구성
 
 - `extension/`: 브라우저 공통 WebExtensions 코드. Chrome/Firefox Manifest V3 별도 빌드.
-- `backend/authorizer.py`: 사내 RS256 JWT를 JWKS로 검증하는 API Gateway HTTP API Lambda Authorizer (payload 2.0 simple response).
+- `backend/authorizer.py`: 사내 RS256 JWT를 JWKS로 검증하는 **Private REST API** TOKEN Lambda Authorizer (IAM Policy 응답).
 - `backend/policy_api.py`: JWT 사용자 권한을 확인하고 계정별 AWS Organizations Effective Tag Policy 조회.
 - `scripts/build.mjs`: `dist/chrome`, `dist/firefox` 패키지 생성.
 
@@ -24,7 +24,7 @@ Node.js 20+ 필요. `BUILD_LOGIN_URL`과 `BUILD_API_BASE_URL`은 브라우저 �
 
 ```bash
 BUILD_LOGIN_URL=https://auth.company.example/api/login \
-BUILD_API_BASE_URL=https://api.company.example \
+BUILD_API_BASE_URL=https://private-api.company.example/prod \
 node scripts/build.mjs
 ```
 
@@ -66,7 +66,9 @@ Python 3.12+, 배포 의존성: `backend/requirements.txt` (`boto3`, `PyJWT[cryp
 
 `subjects` 또는 `groups` 중 한 조건에 매칭돼야 접근할 수 있습니다. 둘 다 빈 배열이면 **접근 거부**입니다. 역할 ARN은 서버 설정에서만 선택하며 클라이언트 요청 값을 사용하지 않습니다. 실제 서비스에서는 대규모 매핑을 환경변수 대신 Parameter Store/DynamoDB 등으로 옮기세요.
 
-**API Gateway**: HTTP API, `GET /v1/accounts/{accountId}/tag-policy` → `policy_api.lambda_handler`; Lambda Authorizer (REQUEST, payload format 2.0, simple response) → `authorizer.lambda_handler`; identity source `$request.header.Authorization`; JWT 인증 없는 공개 경로는 만들지 않습니다. Authorizer 캐시를 사용한다면 토큰 만료 및 권한 변경 지연을 고려해 TTL을 짧게 설정하세요.
+**API Gateway**: REST API (`Endpoint Type=PRIVATE`), `GET /v1/accounts/{accountId}/tag-policy` → Lambda Proxy Integration `policy_api.lambda_handler`; TOKEN Lambda Authorizer → `authorizer.lambda_handler`; Token source `Authorization`. `backend/private-api-resource-policy.example.json`의 `aws:SourceVpce` 조건을 실제 VPCE ID로 변경하여 리소스 정책을 적용합니다. REST TOKEN Authorizer가 요청별 `methodArn`에 대한 IAM 정책을 반환하므로 **Authorizer 결과 캐싱 TTL은 0초**로 구성합니다. JWT 인증 없는 공개 경로는 만들지 않습니다.
+
+사용자 PC는 사내망/VPN에 연결되어 있어야 하고, 사내 DNS와 네트워크가 `execute-api` Interface VPC Endpoint를 올바르게 해석·라우팅해야 합니다. Private API는 인터넷에서 직접 호출할 수 없으며, 사내망/VPN 연결만으로 통신이 자동 보장되는 것도 아닙니다. 네트워크 구성은 [배포 가이드](docs/DEPLOYMENT.md)를 참고하세요.
 
 **정책 조회 Lambda 역할**은 `sts:AssumeRole`을 지정한 대상 역할 ARN으로만 허용합니다. 각 대상 계정의 `TagPolicyReadRole` trust policy는 백엔드 실행 역할만 신뢰하도록 지정하고, 대상 역할에 `organizations:DescribeEffectivePolicy` (`TAG_POLICY` 조건) 읽기 권한을 부여합니다. 자세한 정책 예시는 `backend/iam-examples.md`.
 

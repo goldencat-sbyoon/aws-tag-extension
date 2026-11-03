@@ -16,6 +16,7 @@ import policy_api
 
 
 class AuthorizerTests(unittest.TestCase):
+    method_arn = "arn:aws:execute-api:ap-northeast-2:000000000000:abc123/prod/GET/v1/accounts/111122223333/tag-policy"
     @classmethod
     def setUpClass(cls):
         cls.private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -32,22 +33,29 @@ class AuthorizerTests(unittest.TestCase):
                                      "AUTH_AUDIENCE": "tag-api",
                                      "AUTH_JWKS_URL": "https://auth.company.example/jwks"}):
             with patch.object(authorizer, "_jwks_client", SimpleNamespace(get_signing_key_from_jwt=lambda _: signing)):
-                event = {"headers": {"authorization": "Bearer " + self.make_token()}}
+                event = {"authorizationToken": "Bearer " + self.make_token(), "methodArn": self.method_arn}
                 result = authorizer.lambda_handler(event, None)
-                self.assertTrue(result["isAuthorized"])
+                self.assertEqual(result["policyDocument"]["Statement"][0]["Effect"], "Allow")
+                self.assertEqual(result["policyDocument"]["Statement"][0]["Resource"], self.method_arn)
+                self.assertEqual(result["principalId"], "alice")
                 self.assertEqual(json.loads(result["context"]["groups"]), ["security"])
-                event["headers"]["authorization"] = "Bearer " + self.make_token(scope="unrelated")
-                self.assertFalse(authorizer.lambda_handler(event, None)["isAuthorized"])
+                event["authorizationToken"] = "Bearer " + self.make_token(scope="unrelated")
+                self.assertEqual(authorizer.lambda_handler(event, None)["policyDocument"]["Statement"][0]["Effect"], "Deny")
 
     def test_missing_bearer_denied(self):
-        self.assertFalse(authorizer.lambda_handler({"headers": {}}, None)["isAuthorized"])
+        result = authorizer.lambda_handler({"methodArn": self.method_arn}, None)
+        self.assertEqual(result["policyDocument"]["Statement"][0]["Effect"], "Deny")
+
+    def test_invalid_method_arn_denied(self):
+        result = authorizer.lambda_handler({"authorizationToken": "Bearer foo", "methodArn": "invalid"}, None)
+        self.assertEqual(result["policyDocument"]["Statement"][0]["Resource"], "*")
 
 
 class PolicyApiTests(unittest.TestCase):
     def setUp(self):
         self.config = {"111122223333": {"roleArn": "arn:aws:iam::111122223333:role/TagPolicyReadRole",
                                            "subjects": ["alice"], "groups": []}}
-        self.event = {"requestContext": {"authorizer": {"lambda": {"sub": "alice", "groups": "[]"}}},
+        self.event = {"requestContext": {"authorizer": {"sub": "alice", "groups": "[]"}},
                       "pathParameters": {"accountId": "111122223333"}}
 
     def test_denies_unmapped_account(self):

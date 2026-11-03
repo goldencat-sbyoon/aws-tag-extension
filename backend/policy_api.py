@@ -20,7 +20,8 @@ def _response(code, payload):
 def lambda_handler(event, context):
     request_context = event.get("requestContext", {})
     # Fail closed: do not trust identity passed through headers or request body.
-    identity = request_context.get("authorizer", {}).get("lambda", {})
+    # REST Lambda proxy integration flattens the custom authorizer context.
+    identity = request_context.get("authorizer", {})
     sub = identity.get("sub")
     try:
         groups = json.loads(identity.get("groups", "[]"))

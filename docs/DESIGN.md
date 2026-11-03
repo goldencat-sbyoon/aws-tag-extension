@@ -10,7 +10,7 @@ AWS EC2 콘솔에서 Tag Key 입력란에 AWS Organizations Effective Tag Policy
 | --- | --- | --- |
 | Chrome/Firefox MV3 빌드 | 구현 | 브라우저별 Manifest 생성 |
 | 사용자 ID/비밀번호 기반 사내 로그인 API 어댑터 | 구현 | 실제 API 계약에 맞게 수정 필요 |
-| RS256 JWT 검증 | 구현 | JWKS 이용, Lambda Authorizer |
+| RS256 JWT 검증 | 구현 | JWKS 이용, REST TOKEN Lambda Authorizer |
 | 계정별 사용자/그룹 인가 | 구현 | 서버 측 allowlist |
 | STS AssumeRole 후 Effective Tag Policy 조회 | 구현 | 대상 계정 역할 필요 |
 | EC2 Tag Key 입력란 탐지 및 추천 UI | 초기 구현 | 실제 콘솔 DOM 테스트 필요 |
@@ -86,6 +86,14 @@ Effective Policy는 상속·병합된 결과이므로 `@@assign` 같은 원본 �
 | 403 | `ACCOUNT_ACCESS_DENIED` | 선택 계정 접근 불가 |
 | 404 | `TAG_POLICY_NOT_FOUND` | 기본 AWS 입력 유지 |
 | 502 | `AWS_POLICY_UNAVAILABLE`, `POLICY_ROLE_ACCESS_DENIED` | 기본 AWS 입력 유지, 운영 로그 확인 |
+
+## 5-1. REST API 전환에 따른 요청 구조
+
+- TOKEN Authorizer 입력: `event.authorizationToken` 및 `event.methodArn`.
+- TOKEN Authorizer 출력: `principalId`, `policyDocument`(Allow/Deny), `context`(sub, groups).
+- 정책 Lambda 입력: `event.requestContext.authorizer.sub/groups`와 `event.pathParameters.accountId`.
+- API Gateway REST API Endpoint Type은 Private로, 허용된 VPCE만 접근하도록 Resource Policy에서 통제.
+- 확장 프로그램의 요청 URL에는 REST API 스테이지 경로를 포함.
 
 ## 6. 후속 개발
 
