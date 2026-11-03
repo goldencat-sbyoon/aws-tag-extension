@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AWS Tag Extension</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <main>
+    <h1>AWS Tag Extension</h1>
+    <p>사내 계정으로 로그인 후, EC2 콘솔에서 태그 키를 추천합니다.</p>
+    <form id="login-form">
+      <label>사용자 ID<input id="username" autocomplete="username" required /></label>
+      <label>비밀번호<input id="password" type="password" autocomplete="current-password" required /></label>
+      <button type="submit">로그인</button>
+    </form>
+    <section id="signed-in" hidden>
+      <p>로그인되어 있습니다.</p>
+      <button id="logout" type="button">로그아웃</button>
+    </section>
+    <form id="account-form">
+      <label>AWS 계정 ID (12자리)
+        <input id="account-id" inputmode="numeric" pattern="[0-9]{12}" maxlength="12" placeholder="123456789012" required />
+      </label>
+      <button type="submit">조회 대상 계정 설정</button>
+    </form>
+    <p>현재 콘솔의 계정 ID와 일치하는지 확인하세요. 계정 ID만으로 권한이 부여되지는 않습니다.</p>
+    <p id="message" role="status" aria-live="polite"></p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
