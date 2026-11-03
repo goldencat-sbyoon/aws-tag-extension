@@ -1,6 +1,8 @@
 /* Shared background entry for Chromium service workers and Firefox event pages. */
 const TOKEN_KEY = "authSession";
 const ACCOUNT_KEY = "accountByTab";
+const MODE_KEY = "sourceModeByTab";
+const MANUAL_KEY = "manualPoliciesByAccount";
 const cachedPolicies = new Map();
 const EC2_URL = /^https:\/\/(?:[a-z0-9-]+\.)?console\.aws\.amazon\.com\/ec2\//;
 
@@ -56,28 +58,48 @@ async function authenticate(username, password) {
   return { authenticated: true, expiresAt };
 }
 
-async function fetchPolicy(accountId) {
+async function fetchPolicy(accountId, forceRefresh = false) {
   if (!/^[0-9]{12}$/.test(accountId)) throw new Error("INVALID_ACCOUNT_ID");
   const session = await getSession();
   if (!session) throw new Error("LOGIN_REQUIRED");
   const cached = cachedPolicies.get(accountId);
-  if (cached && Date.now() - cached.timestamp < 300_000) return cached.data;
+  if (!forceRefresh && cached && Date.now() - cached.timestamp < 300_000) return cached.data;
   const config = await getConfig();
   const url = `${config.apiBaseUrl}/v1/accounts/${accountId}/tag-policy`;
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${session.token}` },
-    cache: "no-store",
-    credentials: "omit"
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${session.token}` },
+      cache: "no-store",
+      credentials: "omit",
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("API_TIMEOUT");
+    // DNS, VPN routing, TLS and VPCE security group failures all surface as network errors.
+    throw new Error("PRIVATE_API_UNREACHABLE");
+  } finally {
+    clearTimeout(timeout);
+  }
+  const body = await response.json().catch(() => null);
   if (response.status === 401) {
     await extensionApi().storage.session.remove(TOKEN_KEY);
+    cachedPolicies.clear();
     throw new Error("LOGIN_REQUIRED");
   }
-  if (response.status === 403) throw new Error("ACCOUNT_ACCESS_DENIED");
-  if (response.status === 404) throw new Error("TAG_POLICY_NOT_FOUND");
+  if (response.status === 403) {
+    if (body?.error === "ACCOUNT_ACCESS_DENIED") throw new Error("ACCOUNT_ACCESS_DENIED");
+    throw new Error("API_GATEWAY_FORBIDDEN");
+  }
+  if (response.status === 404) {
+    throw new Error(body?.error === "TAG_POLICY_NOT_FOUND" ? "TAG_POLICY_NOT_FOUND" : "API_ROUTE_NOT_FOUND");
+  }
   if (!response.ok) throw new Error("POLICY_UNAVAILABLE");
-  const data = await response.json();
-  if (data.accountId !== accountId || !Array.isArray(data.tagKeys)) {
+  const data = body;
+  if (!data || data.accountId !== accountId || !Array.isArray(data.tagKeys)) {
     throw new Error("INVALID_POLICY_RESPONSE");
   }
   cachedPolicies.set(accountId, { timestamp: Date.now(), data });
@@ -100,6 +122,77 @@ async function getSelectedAccount(tabId) {
   return data[ACCOUNT_KEY]?.[String(tabId)] || null;
 }
 
+async function getMode(tabId) {
+  if (tabId === null) return "server";
+  const data = await extensionApi().storage.session.get(MODE_KEY);
+  return data[MODE_KEY]?.[String(tabId)] === "file" ? "file" : "server";
+}
+
+async function setMode(tabId, mode) {
+  if (tabId === null) throw new Error("OPEN_EC2_CONSOLE_FIRST");
+  if (!["server", "file"].includes(mode)) throw new Error("INVALID_SOURCE_MODE");
+  const data = await extensionApi().storage.session.get(MODE_KEY);
+  const mapping = data[MODE_KEY] || {};
+  mapping[String(tabId)] = mode;
+  await extensionApi().storage.session.set({ [MODE_KEY]: mapping });
+}
+
+function normalizeImportedPolicy(content, accountId) {
+  if (typeof content !== "string" || content.length > 131_072) throw new Error("POLICY_FILE_TOO_LARGE");
+  let document;
+  try { document = JSON.parse(content); } catch { throw new Error("INVALID_POLICY_JSON"); }
+  if (!document || typeof document !== "object") throw new Error("INVALID_POLICY_JSON");
+  if (document.EffectivePolicy && typeof document.EffectivePolicy === "object") {
+    const effective = document.EffectivePolicy;
+    if (effective.TargetId && effective.TargetId !== accountId) throw new Error("POLICY_ACCOUNT_MISMATCH");
+    if (effective.PolicyType && effective.PolicyType !== "TAG_POLICY") throw new Error("REQUIRE_EFFECTIVE_POLICY");
+    if (typeof effective.PolicyContent !== "string") throw new Error("INVALID_POLICY_JSON");
+    try { document = JSON.parse(document.EffectivePolicy.PolicyContent); }
+    catch { throw new Error("INVALID_POLICY_JSON"); }
+  } else if (typeof document.PolicyContent === "string") {
+    try { document = JSON.parse(document.PolicyContent); }
+    catch { throw new Error("INVALID_POLICY_JSON"); }
+  }
+  if (!document || typeof document !== "object" || Array.isArray(document)) throw new Error("INVALID_POLICY_JSON");
+  if (document.accountId && document.accountId !== accountId) throw new Error("POLICY_ACCOUNT_MISMATCH");
+
+  let keys;
+  if (Array.isArray(document.tagKeys)) {
+    keys = document.tagKeys;
+  } else if (document.tags && typeof document.tags === "object" && !Array.isArray(document.tags)) {
+    keys = Object.entries(document.tags).map(([policyKey, rule]) => {
+      if (!rule || typeof rule !== "object" || Array.isArray(rule)) throw new Error("INVALID_POLICY_JSON");
+      const key = rule.tag_key ?? policyKey.toLowerCase();
+      if (typeof key !== "string" || !key) throw new Error("INVALID_POLICY_JSON");
+      if (rule.tag_value !== undefined && !Array.isArray(rule.tag_value)) throw new Error("REQUIRE_EFFECTIVE_POLICY");
+      const values = rule.tag_value ?? [];
+      return { key, values, valueMode: rule.tag_value === undefined ? "any" : values.length ? "allowed" : "deny",
+        enforcedFor: rule.enforced_for ?? [] };
+    });
+  } else {
+    throw new Error("REQUIRE_EFFECTIVE_POLICY");
+  }
+  if (keys.length > 500 || keys.some(k => !k || typeof k.key !== "string" || !k.key ||
+      !["any", "allowed", "deny"].includes(k.valueMode) || !Array.isArray(k.values) ||
+      k.values.some(v => typeof v !== "string") ||
+      (k.enforcedFor !== undefined && (!Array.isArray(k.enforcedFor) ||
+        k.enforcedFor.some(v => typeof v !== "string"))))) {
+    throw new Error("INVALID_POLICY_JSON");
+  }
+  const names = keys.map(k => k.key);
+  if (new Set(names).size !== names.length) throw new Error("DUPLICATE_TAG_KEYS");
+  return { accountId, tagKeys: keys.map(({ key, valueMode, values, enforcedFor }) =>
+    ({ key, valueMode, values, enforcedFor: enforcedFor ?? [] })),
+    importedAt: new Date().toISOString(), source: "file" };
+}
+
+async function getManualPolicy(accountId) {
+  const data = await extensionApi().storage.local.get(MANUAL_KEY);
+  const policy = data[MANUAL_KEY]?.[accountId];
+  if (!policy) throw new Error("MANUAL_POLICY_NOT_IMPORTED");
+  return policy;
+}
+
 extensionApi().runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     if (!message || typeof message !== "object") throw new Error("INVALID_MESSAGE");
@@ -111,8 +204,11 @@ extensionApi().runtime.onMessage.addListener((message, sender, respond) => {
       case "STATUS": {
         const session = await getSession();
         const tabId = await resolveEc2Tab(sender, message);
+        const accountId = await getSelectedAccount(tabId);
+        const mode = await getMode(tabId);
+        const localData = await extensionApi().storage.local.get(MANUAL_KEY);
         return { authenticated: !!session, expiresAt: session?.expiresAt || null,
-          accountId: await getSelectedAccount(tabId) };
+          accountId, mode, manualImported: !!localData[MANUAL_KEY]?.[accountId] };
       }
       case "SELECT_ACCOUNT": {
         if (!/^[0-9]{12}$/.test(message.accountId)) throw new Error("INVALID_ACCOUNT_ID");
@@ -124,6 +220,25 @@ extensionApi().runtime.onMessage.addListener((message, sender, respond) => {
         await extensionApi().storage.session.set({ [ACCOUNT_KEY]: mapping });
         return { accountId: message.accountId };
       }
+      case "SELECT_MODE": {
+        if (sender.id !== extensionApi().runtime.id || sender.tab) throw new Error("UNTRUSTED_SENDER");
+        const tabId = await resolveEc2Tab(sender, message);
+        await setMode(tabId, message.mode);
+        return { mode: message.mode };
+      }
+      case "IMPORT_POLICY": {
+        if (sender.id !== extensionApi().runtime.id || sender.tab) throw new Error("UNTRUSTED_SENDER");
+        const tabId = await resolveEc2Tab(sender, message);
+        const accountId = await getSelectedAccount(tabId);
+        if (!accountId) throw new Error("ACCOUNT_NOT_SELECTED");
+        const policy = normalizeImportedPolicy(message.content, accountId);
+        const data = await extensionApi().storage.local.get(MANUAL_KEY);
+        const policies = data[MANUAL_KEY] || {};
+        policies[accountId] = policy;
+        await extensionApi().storage.local.set({ [MANUAL_KEY]: policies });
+        await setMode(tabId, "file");
+        return { accountId, tagKeyCount: policy.tagKeys.length, importedAt: policy.importedAt };
+      }
       case "LOGOUT":
         await extensionApi().storage.session.remove(TOKEN_KEY);
         cachedPolicies.clear();
@@ -133,7 +248,18 @@ extensionApi().runtime.onMessage.addListener((message, sender, respond) => {
         const tabId = await resolveEc2Tab(sender, message);
         if (tabId === null) throw new Error("UNTRUSTED_PAGE");
         if (message.accountId !== await getSelectedAccount(tabId)) throw new Error("ACCOUNT_NOT_SELECTED");
+        if (await getMode(tabId) === "file") return getManualPolicy(message.accountId);
         return fetchPolicy(message.accountId);
+      case "TEST_CONNECTION": {
+        if (sender.id !== extensionApi().runtime.id || sender.tab) throw new Error("UNTRUSTED_SENDER");
+        const diagnosticTabId = await resolveEc2Tab(sender, message);
+        if (diagnosticTabId === null) throw new Error("OPEN_EC2_CONSOLE_FIRST");
+        const selectedId = await getSelectedAccount(diagnosticTabId);
+        if (!selectedId) throw new Error("ACCOUNT_NOT_SELECTED");
+        if (await getMode(diagnosticTabId) === "file") throw new Error("FILE_MODE_ACTIVE");
+        const result = await fetchPolicy(selectedId, true);
+        return { accountId: selectedId, tagKeyCount: result.tagKeys.length };
+      }
       default:
         throw new Error("UNKNOWN_MESSAGE");
     }

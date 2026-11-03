@@ -7,6 +7,7 @@
 3. **Private REST API TOKEN Authorizer:** JWT 서명, `iss`, `aud`, `exp`, `iat`, `sub`, `scope` 검증 후 `principalId`/IAM Allow·Deny 반환.
 4. **Policy Lambda:** `sub/groups`와 서버 측 계정 allowlist를 대조. 허용된 대상 IAM 역할만 AssumeRole.
 5. **대상 계정:** AWS Organizations Effective Tag Policy 읽기만 허용.
+6. **오프라인 파일 모드:** 사용자에게 배포한 JSON 파일이 정책 데이터의 신뢰 원천. JWT·서버 측 계정 인가는 이 모드에서 수행되지 않음.
 
 ## JWT 요구사항
 
@@ -53,3 +54,5 @@
 - 이 애드온은 AWS Tag Policy의 서버 측 강제 적용 기능을 대체하지 않는다.
 - 아직 실 AWS 환경에서 인증 및 태그 저장 동작을 검증하지 않았다.
 - `groups` 클레임 형태가 사내 JWT와 다르면 백엔드 매핑을 조정해야 한다.
+- 오프라인 JSON 가져오기는 관리자 승인된 파일을 사용하도록 운영적으로 통제해야 한다. JSON은 평문으로 `storage.local`에 보관되며 서명 검증·자동 최신성 검사는 구현되지 않았다.
+- 파일 모드에서 AWS 계정 접근 권한을 부여하지 않는다. AWS 콘솔/API의 실제 접근 제어와 Tag Policy 강제 여부는 AWS의 별도 설정이다.

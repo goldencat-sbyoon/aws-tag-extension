@@ -77,6 +77,8 @@ curl --fail-with-body -H "Authorization: Bearer <JWT>" \
 - 승인된 VPCE에서도 잘못된 JWT는 403 또는 Unauthorized 응답.
 - 사용 권한이 없는 AWS 계정은 정책 Lambda가 403 반환.
 
+브라우저에서의 직접 호출과 실패 유형별 진단은 [Private API 테스트 가이드](PRIVATE_API_TESTING.md)를 참고.
+
 ## 4. 브라우저 확장 빌드
 
 ```bash
@@ -89,6 +91,8 @@ node scripts/build.mjs
 - Chrome: `dist/chrome`을 개발자 모드에서 로드.
 - Firefox: `dist/firefox/manifest.json`을 임시 설치. 정식 배포 시 Mozilla 서명/사내 배포 정책 확인.
 - 빌드에 토큰·비밀번호·AWS 액세스 키를 포함하지 않는다.
+- **오프라인 파일 모드**도 공통 Chrome/Firefox 패키지에서 선택할 수 있다. 배포 시 빌드 URL은 실제 엔드포인트일 필요가 없지만, 서버 모드로 전환할 사용자가 있다면 올바른 사내 URL로 패키징한다. 서버 연결이 없는 사용자는 계정별 JSON을 별도로 받는다.
+- 관리자는 `aws organizations describe-effective-policy --policy-type TAG_POLICY --target-id <account-id> --output json`으로 추출한 파일을 전달한다. [수동 정책 파일 가이드](MANUAL_POLICY.md).
 
 ## 5. 검증 체크리스트
 
@@ -107,6 +111,9 @@ node scripts/build.mjs
 - [ ] 선택한 키가 실제 EC2 생성 요청/태그에 반영.
 - [ ] 네트워크 오류 시 기본 AWS 콘솔이 정상 동작.
 - [ ] 브라우저·계정 탭별 정책 캐시 분리.
+- [ ] 파일 모드에서 JWT·VPN 없이 로컬 JSON 가져오기 및 키 추천 성공.
+- [ ] 잘못된 계정 TargetId, 다른 PolicyType, 원본 병합 연산자 포함 JSON을 가져오면 거부.
+- [ ] 서버 모드로 돌아올 경우 JWT 인증/Private API 접근을 다시 요구.
 
 ## 6. 자동화 테스트
 
@@ -114,7 +121,7 @@ node scripts/build.mjs
 python3 -m pip install -r backend/requirements.txt
 python3 -m unittest discover -s backend/tests -v
 BUILD_LOGIN_URL=https://auth.company.example/api/login \
-BUILD_API_BASE_URL=https://api.company.example node scripts/build.mjs
+BUILD_API_BASE_URL=https://private-api.company.example/prod node scripts/build.mjs
 node --test extension/tests/*.test.mjs
 ```
 

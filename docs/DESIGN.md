@@ -13,19 +13,20 @@ AWS EC2 콘솔에서 Tag Key 입력란에 AWS Organizations Effective Tag Policy
 | RS256 JWT 검증 | 구현 | JWKS 이용, REST TOKEN Lambda Authorizer |
 | 계정별 사용자/그룹 인가 | 구현 | 서버 측 allowlist |
 | STS AssumeRole 후 Effective Tag Policy 조회 | 구현 | 대상 계정 역할 필요 |
+| 오프라인 Effective Tag Policy JSON 가져오기 | 구현 | JWT·Private API 없이 계정별 로컬 저장 |
+| 정책 소스 선택 | 구현 | EC2 콘솔 탭별 서버/파일 모드 선택 |
 | EC2 Tag Key 입력란 탐지 및 추천 UI | 초기 구현 | 실제 콘솔 DOM 테스트 필요 |
 | 태그 값 제약 UI | 미구현 | API 응답에는 값 제약 정보 포함 |
 | 임의 태그 키 입력 차단 | 미구현 | AWS 정책 수준의 차단과 별개 |
 
 ## 2. 사용자 흐름
 
-1. Chrome 또는 Firefox에 확장을 설치한다.
-2. 확장 팝업에서 사내 계정으로 로그인한다. 토큰은 확장 세션 스토리지에 저장한다.
-3. EC2 콘솔 탭에서 확장 팝업을 열어 현재 탭에서 사용할 AWS 계정 ID 12자리를 선택한다.
-4. EC2의 Tag Key 입력란에 포커스하면 확장에서 정책 API에 인증 요청을 보낸다.
-5. 백엔드가 해당 사용자의 계정 접근 권한을 확인하고 계정별 Effective Policy를 반환한다.
-6. 확장이 키 목록을 표시하고, 선택한 키를 AWS 기본 입력란에 전달한다.
-7. 이후 리소스 생성·수정·저장은 AWS 콘솔의 기본 동작으로 수행한다.
+1. Chrome 또는 Firefox에 확장을 설치하고 EC2 콘솔 탭에서 AWS 계정 ID를 설정한다.
+2. 정책 소스를 `서버 연동` 또는 `정책 파일`로 선택한다.
+3. 서버 모드라면 사내 계정에 로그인한다. 백그라운드 스크립트가 VPN/VPCE 경유 JWT 인증 API 호출 후 계정별 Effective Policy를 받는다.
+4. 파일 모드라면 관리자가 제공한 **계정별 Effective Tag Policy JSON**을 팝업에서 가져온다. 로그인/네트워크 없이 정책 키를 로컬에서 읽는다.
+5. EC2의 Tag Key 입력란에 포커스하면 선택한 소스의 키 목록을 드롭다운으로 표시한다.
+6. 선택한 키를 AWS 기본 입력란에 전달하고 실제 저장은 AWS 콘솔에서 수행한다.
 
 ### UX 정책
 
@@ -34,14 +35,18 @@ AWS EC2 콘솔에서 Tag Key 입력란에 AWS Organizations Effective Tag Policy
 - 입력한 문자열을 기준으로 추천 키를 필터링한다.
 - `valueMode=deny` 태그 키는 추천 목록에서 제외한다.
 - API 응답을 계정별로 5분 캐싱한다. 로그인·로그아웃 시 캐시를 삭제한다.
+- 팝업 연결 테스트는 캐시를 건너뛰어 실제 Private REST API에 요청하고 성공 시 태그 키 개수를 표시한다.
+- Private REST API 호출은 10초 타임아웃을 사용한다. 네트워크 실패·Gateway 거부·계정 인가 실패를 구분한다.
 - 다른 탭에서 다른 계정을 선택할 수 있으나 **실제 콘솔의 계정 ID와 사용자 선택의 일치 여부는 현재 자동 검증하지 못한다.**
+- 파일 모드는 계정별 로컬 정책을 사용하며 128KiB·500키 제한, 원본 병합 연산자 미지원. 최신 정책은 사용자가 다시 가져와야 한다.
+- AWS CLI 응답의 `TargetId`는 현재 계정과 대조한다. 순수 `tags` JSON에는 계정 정보가 없어 수동 확인이 필요하다.
 
 ## 3. 브라우저 아키텍처
 
 | 파일 | 책임 |
 | --- | --- |
-| `extension/background.js` | 로그인 API 요청, JWT 보관, 계정 선택, API 호출 및 캐시 |
-| `extension/popup.html/js/css` | 사용자 로그인과 탭별 계정 선택 UI |
+| `extension/background.js` | 로그인 API 요청, JWT 보관, 계정·소스 선택, Private API 호출 및 로컬 파일 정책 관리 |
+| `extension/popup.html/js/css` | 로그인, 계정·소스 선택, JSON 파일 가져오기 UI |
 | `extension/content.js` | EC2 입력란 감지, 드롭다운 부착, 기본 입력값 업데이트 |
 | `scripts/build.mjs` | Chrome/Firefox 개별 Manifest·설정 생성 |
 
@@ -103,3 +108,6 @@ Effective Policy는 상속·병합된 결과이므로 `@@assign` 같은 원본 �
 4. 태그 값 자동완성 및 와일드카드 제약 표시.
 5. 중복 키·접근성·키보드 탐색·사용자 알림 강화.
 6. 정책 조회 감사로그·모니터링·성능 테스트.
+
+실제 VPN 경유 호출 절차는 [Private API 테스트 가이드](PRIVATE_API_TESTING.md)를 참고.
+오프라인 배포·파일 가져오기는 [수동 정책 파일 가이드](MANUAL_POLICY.md)를 참고.

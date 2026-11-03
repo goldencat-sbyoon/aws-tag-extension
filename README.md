@@ -1,6 +1,6 @@
 # AWS Tag Extension (Chrome + Firefox)
 
-AWS EC2 콘솔의 Tag Key 입력란에 AWS Organizations **Effective Tag Policy** 기반 추천 목록을 표시하는 확장 프로그램의 MVP입니다.
+AWS EC2 콘솔의 Tag Key 입력란에 AWS Organizations **Effective Tag Policy** 기반 추천 목록을 표시하는 확장 프로그램의 MVP입니다. **사내 Private REST API 조회**와 **정책 JSON 파일 직접 가져오기** 중 하나를 선택할 수 있습니다.
 
 > **개발 상태:** 초기 구현 및 단위 테스트 완료. 실제 사내 인증 API와 EC2 콘솔의 DOM/저장 동작은 미검증이며 운영 배포 전 통합 테스트가 필요합니다.
 
@@ -10,6 +10,8 @@ AWS EC2 콘솔의 Tag Key 입력란에 AWS Organizations **Effective Tag Policy*
 - [시스템 아키텍처](docs/ARCHITECTURE.md)
 - [인증·보안 설계](docs/SECURITY.md)
 - [배포·운영 체크리스트](docs/DEPLOYMENT.md)
+- [오프라인 정책 파일 가져오기](docs/MANUAL_POLICY.md)
+- [Private REST API 직접 호출 테스트](docs/PRIVATE_API_TESTING.md)
 
 ## 구성
 
@@ -31,7 +33,13 @@ node scripts/build.mjs
 Chrome: `chrome://extensions` → Developer mode → Load unpacked → `dist/chrome`.
 Firefox: `about:debugging#/runtime/this-firefox` → Load Temporary Add-on → `dist/firefox/manifest.json`.
 
-EC2 콘솔 탭에서 로그인 후 팝업에서 **조회할 AWS 계정 ID 12자리**를 설정합니다. 탭별로 서로 다른 계정 ID를 선택할 수 있으며, 실제 AWS 콘솔의 계정 ID와 일치하는지 사용자가 확인해야 합니다. 이 계정 선택은 UI 설정일 뿐이며 서버에서 별도로 인가합니다. 향후 콘솔 계정 식별 신뢰성을 검증한 후 자동 전환 기능을 추가할 수 있습니다.
+EC2 콘솔 탭에서 팝업을 열어 **조회할 AWS 계정 ID 12자리**를 설정합니다. 탭별로 서로 다른 계정 및 정책 소스를 선택할 수 있으며, 실제 AWS 콘솔 계정과 일치하는지 확인해야 합니다. 이 계정 선택은 UI 설정일 뿐이며 **서버 모드에서는 백엔드가 별도로 계정별 인가를 수행**합니다.
+
+**서버 연동 모드:** 사내 로그인 API로 인증하고 JWT를 사용해 Private REST API Gateway를 호출합니다. 사내망/VPN과 VPCE 연결이 필요합니다.
+
+**정책 파일 모드:** 사내 담당자가 AWS Organizations에서 내려받은 **계정별 Effective Tag Policy JSON**을 팝업에서 선택합니다. 정책 키 조회에 **VPN·API Gateway·JWT가 필요하지 않으며**, 파일은 확장 로컬 저장소에 계정별로 저장됩니다. [정책 파일 추출 및 배포 안내](docs/MANUAL_POLICY.md)를 참조하세요.
+
+팝업의 **Private API 연결 테스트** 버튼은 캐시를 사용하지 않고 실제 API를 다시 호출하여 태그 키 개수를 확인합니다. 사내 VPN/DNS/VPCE가 정상 동작할 때만 성공하며, HTTP 응답과 네트워크 오류를 구분해 표시합니다. [실제 호출 테스트 가이드](docs/PRIVATE_API_TESTING.md)를 참고하세요.
 
 실제 내부 인증 API 계약이 확정되면 `extension/background.js`의 `authenticate()` 요청/응답 매핑을 조정하세요. 현재는 `POST {username,password}` → `{access_token}`을 가정합니다. 비밀번호는 저장하지 않습니다. Access Token은 확장 세션 스토리지에만 보관합니다.
 

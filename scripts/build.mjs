@@ -18,6 +18,9 @@ function parseHttps(value, name) {
 
 const login = parseHttps(loginUrl, "BUILD_LOGIN_URL");
 const api = parseHttps(apiBaseUrl, "BUILD_API_BASE_URL");
+if (api.pathname === "/" || api.search || api.hash) {
+  throw new Error("BUILD_API_BASE_URL must include the REST API stage path (e.g. /prod) without query/hash");
+}
 
 for (const browser of ["chrome", "firefox"]) {
   const dest = resolve(project, "dist", browser);

@@ -76,7 +76,7 @@
       try {
         const state = await request({ type: "STATUS" });
         const accountId = state.accountId;
-        if (!state.authenticated || !accountId) return;
+        if (!accountId || (state.mode !== "file" && !state.authenticated)) return;
         const policy = await request({ type: "GET_POLICY", accountId });
         if (document.activeElement !== input) return;
         all = policy.tagKeys.filter(item => typeof item.key === "string" && item.valueMode !== "deny");

@@ -9,7 +9,7 @@
 <body>
   <main>
     <h1>AWS Tag Extension</h1>
-    <p>사내 계정으로 로그인 후, EC2 콘솔에서 태그 키를 추천합니다.</p>
+    <p>EC2 콘솔에서 회사 표준 태그 키를 추천합니다. 정책 소스를 선택하세요.</p>
     <form id="login-form">
       <label>사용자 ID<input id="username" autocomplete="username" required /></label>
       <label>비밀번호<input id="password" type="password" autocomplete="current-password" required /></label>
@@ -25,6 +25,21 @@
       </label>
       <button type="submit">조회 대상 계정 설정</button>
     </form>
+    <label>태그 정책 가져오기 방식
+      <select id="source-mode">
+        <option value="server">서버 연동 (Private REST API)</option>
+        <option value="file">정책 파일 직접 가져오기</option>
+      </select>
+    </label>
+    <section id="server-mode">
+      <button id="test-api" type="button">Private API 연결 테스트</button>
+    </section>
+    <section id="file-mode" hidden>
+      <label>Effective Tag Policy JSON 파일
+        <input id="policy-file" type="file" accept=".json,application/json" />
+      </label>
+      <p>선택한 AWS 계정에 파일을 저장해 사용합니다. 서버 호출·JWT 로그인이 필요하지 않습니다.</p>
+    </section>
     <p>현재 콘솔의 계정 ID와 일치하는지 확인하세요. 계정 ID만으로 권한이 부여되지는 않습니다.</p>
     <p id="message" role="status" aria-live="polite"></p>
   </main>
