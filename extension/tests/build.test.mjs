@@ -11,8 +11,10 @@ for (const browser of ["chrome", "firefox"]) {
     assert.ok(manifest.content_scripts[0].matches.some(item => item.includes("console.aws.amazon.com")));
     assert.equal(Boolean(manifest.background.service_worker), browser === "chrome");
     assert.equal(Boolean(manifest.background.scripts), browser === "firefox");
-    assert.ok(manifest.host_permissions.includes("https://private-api.company.example/*"));
     const config = JSON.parse(await readFile(resolve(root, "dist", browser, "config.json"), "utf8"));
-    assert.equal(config.apiBaseUrl, "https://private-api.company.example/prod");
+    assert.equal(new URL(config.apiBaseUrl).protocol, "https:");
+    assert.ok(new URL(config.apiBaseUrl).pathname.length > 1, "Private REST URL includes stage");
+    assert.ok(manifest.host_permissions.includes(new URL(config.apiBaseUrl).origin + "/*"));
+    assert.ok(manifest.host_permissions.includes(new URL(config.loginUrl).origin + "/*"));
   });
 }

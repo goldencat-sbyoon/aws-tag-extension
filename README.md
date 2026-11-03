@@ -6,6 +6,7 @@ AWS EC2 콘솔의 Tag Key 입력란에 AWS Organizations **Effective Tag Policy*
 
 ## 프로젝트 문서
 
+- [바로 다운로드할 Chrome/Firefox 설치 패키지](docs/INSTALL_PACKAGES.md)
 - [기능 및 구현 설계](docs/DESIGN.md)
 - [시스템 아키텍처](docs/ARCHITECTURE.md)
 - [인증·보안 설계](docs/SECURITY.md)
@@ -26,6 +27,8 @@ AWS EC2 콘솔의 Tag Key 입력란에 AWS Organizations **Effective Tag Policy*
 ## 로컬 빌드
 
 Node.js 20+ 필요. `BUILD_LOGIN_URL`과 `BUILD_API_BASE_URL`은 브라우저 확장에 포함되는 **공개 엔드포인트**이며 비밀값을 넣으면 안 됩니다.
+
+**정책 파일 모드만 사용한다면** 미리 빌드된 `downloads/` ZIP을 사용할 수 있습니다. [설치 안내](docs/INSTALL_PACKAGES.md)를 참고하세요. 이 ZIP은 서버 URL이 `.invalid`인 개발·테스트용이므로 사내 JWT/Private API 로그인은 작동하지 않습니다.
 
 ```bash
 BUILD_LOGIN_URL=https://auth.company.example/api/login \

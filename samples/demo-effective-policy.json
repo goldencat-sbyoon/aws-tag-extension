@@ -1,0 +1,8 @@
+{
+  "accountId": "111122223333",
+  "tagKeys": [
+    {"key": "CostCenter", "valueMode": "any", "values": [], "enforcedFor": []},
+    {"key": "Environment", "valueMode": "allowed", "values": ["dev", "prod"], "enforcedFor": []},
+    {"key": "Owner", "valueMode": "any", "values": [], "enforcedFor": []}
+  ]
+}
