@@ -3,6 +3,8 @@ const TOKEN_KEY = "authSession";
 const ACCOUNT_KEY = "accountByTab";
 const MODE_KEY = "sourceModeByTab";
 const MANUAL_KEY = "manualPoliciesByAccount";
+const OU_BUNDLE_TYPE = "aws-tag-extension-ou-effective-policy-v1";
+const MAX_BUNDLE_BYTES = 2_097_152;
 const cachedPolicies = new Map();
 const EC2_URL = /^https:\/\/(?:[a-z0-9-]+\.)?console\.aws\.amazon\.com\/ec2\//;
 
@@ -106,6 +108,69 @@ async function fetchPolicy(accountId, forceRefresh = false) {
   return data;
 }
 
+async function fetchOuPolicies(ouId, ouName) {
+  if (typeof ouId !== "string" || typeof ouName !== "string" || (!!ouId === !!ouName)) {
+    throw new Error("INVALID_OU_SELECTOR");
+  }
+  if (ouId && !/^ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}$/.test(ouId)) throw new Error("INVALID_OU_SELECTOR");
+  if (ouName && (ouName.length > 128 || !ouName.trim())) throw new Error("INVALID_OU_SELECTOR");
+  const session = await getSession();
+  if (!session) throw new Error("LOGIN_REQUIRED");
+  const config = await getConfig();
+  const query = new URLSearchParams(ouId ? { ouId } : { ouName: ouName.trim() });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+  let response;
+  try {
+    response = await fetch(`${config.apiBaseUrl}/v1/organizational-units/accounts?${query}`, {
+      headers: { Authorization: `Bearer ${session.token}` }, cache: "no-store",
+      credentials: "omit", signal: controller.signal
+    });
+  } catch {
+    throw new Error(controller.signal.aborted ? "API_TIMEOUT" : "PRIVATE_API_UNREACHABLE");
+  } finally { clearTimeout(timeout); }
+  const body = await response.json().catch(() => null);
+  if (response.status === 401) {
+    await extensionApi().storage.session.remove(TOKEN_KEY);
+    cachedPolicies.clear();
+    throw new Error("LOGIN_REQUIRED");
+  }
+  if (response.status === 409 && body?.error === "OU_NAME_AMBIGUOUS" && Array.isArray(body.matches)) {
+    return { ambiguous: true, matches: body.matches };
+  }
+  if (response.status === 404 && body?.error === "OU_NOT_FOUND_OR_NOT_AUTHORIZED") {
+    throw new Error("OU_NOT_FOUND_OR_NOT_AUTHORIZED");
+  }
+  if (response.status === 400 && body?.error === "INVALID_OU_SELECTOR") throw new Error("INVALID_OU_SELECTOR");
+  if (response.status === 413 && body?.error === "OU_DISCOVERY_LIMIT") throw new Error("OU_DISCOVERY_LIMIT");
+  if (response.status === 403) throw new Error("API_GATEWAY_FORBIDDEN");
+  if (!response.ok) throw new Error("OU_DISCOVERY_UNAVAILABLE");
+  if (!body?.ou || !Array.isArray(body.accounts) ||
+      body.accounts.some(item => !/^[0-9]{12}$/.test(item.accountId))) {
+    throw new Error("INVALID_POLICY_RESPONSE");
+  }
+  // Each account is fetched via the existing JWT/allowlist-protected per-account endpoint.
+  // Use bounded concurrency to avoid a large OU flooding Organizations/STS.
+  const results = new Array(body.accounts.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < body.accounts.length) {
+      const i = cursor++;
+      const account = body.accounts[i];
+      let policy;
+      try { policy = await fetchPolicy(account.accountId); }
+      catch (error) {
+        if (error.message !== "TAG_POLICY_NOT_FOUND") throw error;
+        policy = { accountId: account.accountId, tagKeys: [], policyStatus: "not_found" };
+      }
+      results[i] = { accountId: account.accountId, accountName: account.accountName,
+        tagKeyCount: policy.tagKeys.length, policyStatus: policy.policyStatus || "ok" };
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, results.length) }, () => worker()));
+  return { ou: body.ou, accounts: results };
+}
+
 async function resolveEc2Tab(sender, message) {
   if (sender.tab?.id !== undefined) {
     return EC2_URL.test(sender.url || "") ? sender.tab.id : null;
@@ -120,6 +185,15 @@ async function getSelectedAccount(tabId) {
   if (tabId === null) return null;
   const data = await extensionApi().storage.session.get(ACCOUNT_KEY);
   return data[ACCOUNT_KEY]?.[String(tabId)] || null;
+}
+
+async function clearAccountUnlessIn(tabId, accounts) {
+  const selected = await getSelectedAccount(tabId);
+  if (!selected || accounts.some(item => item.accountId === selected)) return;
+  const data = await extensionApi().storage.session.get(ACCOUNT_KEY);
+  const mapping = data[ACCOUNT_KEY] || {};
+  delete mapping[String(tabId)];
+  await extensionApi().storage.session.set({ [ACCOUNT_KEY]: mapping });
 }
 
 async function getMode(tabId) {
@@ -186,6 +260,39 @@ function normalizeImportedPolicy(content, accountId) {
     importedAt: new Date().toISOString(), source: "file" };
 }
 
+function normalizeOuBundle(content) {
+  if (typeof content !== "string" || new TextEncoder().encode(content).length > MAX_BUNDLE_BYTES) {
+    throw new Error("POLICY_FILE_TOO_LARGE");
+  }
+  let document;
+  try { document = JSON.parse(content); } catch { throw new Error("INVALID_POLICY_JSON"); }
+  if (document?.bundleType !== OU_BUNDLE_TYPE || document.policyType !== "TAG_POLICY" ||
+      !/^ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}$/.test(document.ou?.id) ||
+      !Array.isArray(document.accounts) || document.accounts.length > 10_000) {
+    throw new Error("INVALID_OU_BUNDLE");
+  }
+  const result = Object.create(null);
+  const accounts = [];
+  for (const entry of document.accounts) {
+    if (!/^[0-9]{12}$/.test(entry?.accountId) || result[entry.accountId] ||
+        !Array.isArray(entry.tagKeys) ||
+        ![undefined, "ok", "not_found"].includes(entry.policyStatus) ||
+        (entry.policyStatus === "not_found" && entry.tagKeys.length)) {
+      throw new Error("INVALID_OU_BUNDLE");
+    }
+    // Use the exact same schema validation as a standalone policy file.
+    const policy = normalizeImportedPolicy(JSON.stringify(entry), entry.accountId);
+    policy.ouId = document.ou.id;
+    policy.accountName = typeof entry.accountName === "string" ? entry.accountName.slice(0, 128) : "";
+    policy.policyStatus = entry.policyStatus || "ok";
+    result[entry.accountId] = policy;
+    accounts.push({ accountId: entry.accountId, accountName: policy.accountName,
+      tagKeyCount: policy.tagKeys.length, policyStatus: policy.policyStatus });
+  }
+  return { policies: result, accounts, ou: { id: document.ou.id,
+    name: typeof document.ou.name === "string" ? document.ou.name.slice(0, 128) : "" } };
+}
+
 async function getManualPolicy(accountId) {
   const data = await extensionApi().storage.local.get(MANUAL_KEY);
   const policy = data[MANUAL_KEY]?.[accountId];
@@ -207,8 +314,10 @@ extensionApi().runtime.onMessage.addListener((message, sender, respond) => {
         const accountId = await getSelectedAccount(tabId);
         const mode = await getMode(tabId);
         const localData = await extensionApi().storage.local.get(MANUAL_KEY);
+        const manualAccounts = Object.entries(localData[MANUAL_KEY] || {}).map(([id, policy]) =>
+          ({ accountId: id, accountName: policy.accountName || "", tagKeyCount: policy.tagKeys.length }));
         return { authenticated: !!session, expiresAt: session?.expiresAt || null,
-          accountId, mode, manualImported: !!localData[MANUAL_KEY]?.[accountId] };
+          accountId, mode, manualImported: !!localData[MANUAL_KEY]?.[accountId], manualAccounts };
       }
       case "SELECT_ACCOUNT": {
         if (!/^[0-9]{12}$/.test(message.accountId)) throw new Error("INVALID_ACCOUNT_ID");
@@ -229,6 +338,21 @@ extensionApi().runtime.onMessage.addListener((message, sender, respond) => {
       case "IMPORT_POLICY": {
         if (sender.id !== extensionApi().runtime.id || sender.tab) throw new Error("UNTRUSTED_SENDER");
         const tabId = await resolveEc2Tab(sender, message);
+        if (tabId === null) throw new Error("OPEN_EC2_CONSOLE_FIRST");
+        if (typeof message.content !== "string") throw new Error("INVALID_POLICY_JSON");
+        if (new TextEncoder().encode(message.content).length > MAX_BUNDLE_BYTES) throw new Error("POLICY_FILE_TOO_LARGE");
+        let document;
+        try { document = JSON.parse(message.content); } catch { throw new Error("INVALID_POLICY_JSON"); }
+        if (document?.bundleType !== undefined) {
+          const bundle = normalizeOuBundle(message.content);
+          const data = await extensionApi().storage.local.get(MANUAL_KEY);
+          await extensionApi().storage.local.set({ [MANUAL_KEY]:
+            { ...(data[MANUAL_KEY] || {}), ...bundle.policies } });
+          await setMode(tabId, "file");
+          await clearAccountUnlessIn(tabId, bundle.accounts);
+          return { ou: bundle.ou, accounts: bundle.accounts,
+            accountCount: bundle.accounts.length };
+        }
         const accountId = await getSelectedAccount(tabId);
         if (!accountId) throw new Error("ACCOUNT_NOT_SELECTED");
         const policy = normalizeImportedPolicy(message.content, accountId);
@@ -238,6 +362,15 @@ extensionApi().runtime.onMessage.addListener((message, sender, respond) => {
         await extensionApi().storage.local.set({ [MANUAL_KEY]: policies });
         await setMode(tabId, "file");
         return { accountId, tagKeyCount: policy.tagKeys.length, importedAt: policy.importedAt };
+      }
+      case "GET_OU_POLICIES": {
+        if (sender.id !== extensionApi().runtime.id || sender.tab) throw new Error("UNTRUSTED_SENDER");
+        const tabId = await resolveEc2Tab(sender, message);
+        if (tabId === null) throw new Error("OPEN_EC2_CONSOLE_FIRST");
+        if (await getMode(tabId) !== "server") throw new Error("FILE_MODE_ACTIVE");
+        const result = await fetchOuPolicies(message.ouId || "", message.ouName || "");
+        if (!result.ambiguous) await clearAccountUnlessIn(tabId, result.accounts);
+        return result;
       }
       case "LOGOUT":
         await extensionApi().storage.session.remove(TOKEN_KEY);

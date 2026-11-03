@@ -8,5 +8,7 @@ label { display: grid; gap: 4px; font-weight: 600; }
 input { border: 1px solid #b8c3d2; border-radius: 6px; padding: 9px; font: inherit; }
 select { border: 1px solid #b8c3d2; border-radius: 6px; padding: 9px; font: inherit; width: 100%; }
 section { margin-top: 12px; }
+#ou-form { margin-top: 10px; }
+#ou-accounts-section, #ou-matches-section { border-top: 1px solid #d4dbe5; padding-top: 10px; }
 button { border: none; border-radius: 6px; padding: 10px; background: #1767bb; color: #fff; cursor: pointer; font-weight: 600; }
 #message { min-height: 18px; }

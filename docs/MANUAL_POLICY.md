@@ -23,13 +23,25 @@ aws organizations describe-effective-policy \
 
 AWS CLI 참고: [describe-effective-policy](https://docs.aws.amazon.com/cli/latest/reference/organizations/describe-effective-policy.html).
 
+### OU 전체 계정을 한 파일로 배포
+
+OU ID 또는 이름으로 하위 OU를 재귀 탐색하고 **각 활성 계정의 최종 Effective Tag Policy**를 수집하는 스크립트도 제공합니다.
+
+```bash
+python3 scripts/export_ou_policies.py \
+  --ou-id ou-abcd-12345678 \
+  --output production-ou-policies.json
+```
+
+이름 조회는 `--ou-name Production`으로 바꿔 실행하면 됩니다. 중복 OU 이름이 발견되면 ID를 지정하도록 안내합니다. 자세한 설정/권한/데이터 구조는 [OU 가이드](OU_POLICY.md)를 참고하세요.
+
 ## 2. 사용자: 설치 및 파일 가져오기
 
 1. Chrome 또는 Firefox에 사내에서 전달받은 확장 프로그램을 설치합니다.
 2. 해당 AWS 계정의 **EC2 콘솔 탭**을 엽니다.
 3. 확장 프로그램 팝업에서 **AWS 계정 ID(12자리)**를 입력하고 `조회 대상 계정 설정`을 클릭합니다.
 4. `태그 정책 가져오기 방식`을 **정책 파일 직접 가져오기**로 변경합니다.
-5. `Effective Tag Policy JSON 파일`에서 관리자가 전달한 JSON 파일을 선택합니다.
+5. `Effective Tag Policy 또는 OU 묶음 JSON 파일`에서 관리자가 전달한 JSON 파일을 선택합니다.
 6. `파일 적용 완료` 메시지와 태그 키 수를 확인하고 EC2의 Tag Key 입력란에 포커스합니다.
 
 파일을 가져온 후에는 정책 키 목록을 브라우저 확장의 로컬 저장소에 **AWS 계정별로 보관**합니다. 같은 계정에 새 파일을 가져오면 이전 파일을 덮어씁니다. 파일 모드는 JWT 로그인이 필요하지 않으며 사내망/VPN 연결 없이도 이미 열린 EC2 콘솔 화면에서 추천 키를 표시할 수 있습니다. 단, **EC2 콘솔 자체의 접근·AWS 작업에는 AWS 접속과 별도 로그인이 필요**합니다.

@@ -9,6 +9,7 @@
 - 사내망/VPN과 API VPC 사이의 연결, 라우팅, DNS 확인.
 - `com.amazonaws.<region>.execute-api` Interface VPC Endpoint 및 승인 CIDR 확보.
 - 대상 계정별 `TagPolicyReadRole` 준비.
+- OU 탐색을 사용할 경우 AWS Organizations 관리 계정의 별도 `OrgDiscoveryReadRole` 및 OU/계정 조회 권한 준비.
 - 실제 EC2 콘솔에서 확장 UI/저장 동작 검증할 테스트 계정.
 
 ## 2. Lambda 배포
@@ -17,8 +18,10 @@
 
 - JWT Authorizer 핸들러: `authorizer.lambda_handler`
 - 정책 API 핸들러: `policy_api.lambda_handler`
-- 두 함수에 서로 다른 실행 역할을 부여하는 것을 권장.
-- `AUTH_*`는 Authorizer Lambda에, `ACCOUNT_AUTHZ_JSON`은 정책 Lambda에 설정.
+- OU 탐색 API 핸들러: `ou_api.lambda_handler` (별도 Lambda, 별도 최소 권한 실행 역할 권장)
+- 세 함수에 서로 다른 실행 역할을 부여하는 것을 권장.
+- `AUTH_*`는 Authorizer Lambda에, `ACCOUNT_AUTHZ_JSON`은 정책·OU Lambda에 각각 설정.
+- `ORG_DISCOVERY_ROLE_ARN`은 OU Lambda에만 설정. 예: `arn:aws:iam::MANAGEMENT_ACCOUNT_ID:role/OrgDiscoveryReadRole` (실제 ID로 대체).
 - JWT Authorizer가 JWKS에 HTTPS 접근할 수 있어야 함.
 
 환경변수 예시 (실제 값으로 대체):
@@ -29,6 +32,7 @@ AUTH_AUDIENCE=aws-tag-extension-api
 AUTH_JWKS_URL=https://auth.company.example/.well-known/jwks.json
 AUTH_REQUIRED_SCOPE=tag-policy:read
 ACCOUNT_AUTHZ_JSON={"111122223333":{"roleArn":"arn:aws:iam::111122223333:role/TagPolicyReadRole","subjects":[],"groups":["cloud-security"]}}
+ORG_DISCOVERY_ROLE_ARN=arn:aws:iam::111122223333:role/OrgDiscoveryReadRole
 ```
 
 ## 3. Private REST API Gateway
@@ -38,6 +42,7 @@ REST API를 **Private** Endpoint Type으로 생성하고 다음을 설정한다.
 - Authorizer: **TOKEN** Lambda Authorizer, Token source `Authorization`.
 - Authorizer Result TTL: **0초** (반환 IAM 정책이 요청의 `methodArn`에 한정됨).
 - Resource: `/v1/accounts/{accountId}/tag-policy`, Method: `GET`.
+- 추가 Resource: `/v1/organizational-units/accounts`, Method: `GET`, `ou_api.lambda_handler`로 Lambda Proxy 통합. `ouId` 또는 `ouName` 쿼리 문자열을 사용.
 - Integration: **Lambda Proxy Integration**, Policy Lambda.
 - Method Authorization: **Custom Lambda Authorizer**.
 - Endpoint: **Private** (Regional/Edge 최적화 아님).
@@ -79,6 +84,24 @@ curl --fail-with-body -H "Authorization: Bearer <JWT>" \
 
 브라우저에서의 직접 호출과 실패 유형별 진단은 [Private API 테스트 가이드](PRIVATE_API_TESTING.md)를 참고.
 
+### 3-3. OU 조회 테스트
+
+동일한 Private API/VPC Endpoint 및 TOKEN Authorizer를 적용합니다. OU Lambda 실행 역할에 관리 계정 `OrgDiscoveryReadRole`을 AssumeRole할 권한을 부여하고 역할 Trust Policy 및 Organizations 조회 권한을 설정합니다.
+
+```bash
+curl --fail-with-body -H "Authorization: Bearer <JWT>" \
+  "https://<private-api-host>/<stage>/v1/organizational-units/accounts?ouId=ou-abcd-12345678"
+
+curl --fail-with-body -G -H "Authorization: Bearer <JWT>" \
+  --data-urlencode "ouName=Production" \
+  "https://<private-api-host>/<stage>/v1/organizational-units/accounts"
+```
+
+- 이름 중복: `409 OU_NAME_AMBIGUOUS` 및 허용된 OU 목록 반환.
+- 계정 권한 없음/OU 찾을 수 없음: `404 OU_NOT_FOUND_OR_NOT_AUTHORIZED`.
+- 계정 정책은 별도 기존 GET 경로로 조회되며, OU Lambda에서 계정별 정책을 무제한 동기 반복하지 않습니다.
+- 전체 설계 및 보안/대규모 OU 제약은 [OU 가이드](OU_POLICY.md) 참고.
+
 ## 4. 브라우저 확장 빌드
 
 ```bash
@@ -93,6 +116,7 @@ node scripts/build.mjs
 - 빌드에 토큰·비밀번호·AWS 액세스 키를 포함하지 않는다.
 - **오프라인 파일 모드**도 공통 Chrome/Firefox 패키지에서 선택할 수 있다. 배포 시 빌드 URL은 실제 엔드포인트일 필요가 없지만, 서버 모드로 전환할 사용자가 있다면 올바른 사내 URL로 패키징한다. 서버 연결이 없는 사용자는 계정별 JSON을 별도로 받는다.
 - 관리자는 `aws organizations describe-effective-policy --policy-type TAG_POLICY --target-id <account-id> --output json`으로 추출한 파일을 전달한다. [수동 정책 파일 가이드](MANUAL_POLICY.md).
+- OU 전체 파일은 `python3 scripts/export_ou_policies.py --ou-name Production --output production-ou-policies.json`으로 추출한 후 전달할 수 있습니다. 이 스크립트를 실행하는 관리자 자격에는 OU 목록/계정 조회 및 각 계정 대상 `DescribeEffectivePolicy`가 필요합니다.
 
 ## 5. 검증 체크리스트
 
@@ -114,6 +138,8 @@ node scripts/build.mjs
 - [ ] 파일 모드에서 JWT·VPN 없이 로컬 JSON 가져오기 및 키 추천 성공.
 - [ ] 잘못된 계정 TargetId, 다른 PolicyType, 원본 병합 연산자 포함 JSON을 가져오면 거부.
 - [ ] 서버 모드로 돌아올 경우 JWT 인증/Private API 접근을 다시 요구.
+- [ ] OU ID/이름 검색(동일 이름 중복 포함), 중첩 OU의 활성 계정 탐색 및 권한 없는 계정 결과 제외.
+- [ ] OU 하위 모든 허용 계정의 Effective Policy 조회, 파일 모드 OU 묶음 가져오기 및 계정 선택.
 
 ## 6. 자동화 테스트
 

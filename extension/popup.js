@@ -5,6 +5,40 @@ const message = document.getElementById("message");
 const sourceSelect = document.getElementById("source-mode");
 let authenticated = false;
 
+function showAccounts(accounts) {
+  const section = document.getElementById("ou-accounts-section");
+  const select = document.getElementById("ou-accounts");
+  select.replaceChildren();
+  for (const account of accounts) {
+    const option = document.createElement("option");
+    option.value = account.accountId;
+    option.textContent = `${account.accountName || "AWS 계정"} (${account.accountId}) · ${account.tagKeyCount}개 키`;
+    select.append(option);
+  }
+  section.hidden = accounts.length === 0;
+}
+
+async function loadOu(ouId, ouName) {
+  message.textContent = "OU 및 하위 계정별 정책 조회 중... (계정 수에 따라 시간이 걸립니다)";
+  const result = await request({ type: "GET_OU_POLICIES", tabId: await activeTabId(), ouId, ouName });
+  if (result.ambiguous) {
+    const select = document.getElementById("ou-matches");
+    select.replaceChildren();
+    for (const candidate of result.matches) {
+      const option = document.createElement("option");
+      option.value = candidate.id;
+      option.textContent = `${candidate.path || candidate.name} (${candidate.id})`;
+      select.append(option);
+    }
+    document.getElementById("ou-matches-section").hidden = false;
+    message.textContent = "OU 이름이 중복됩니다. 해당 OU를 선택하세요.";
+    return;
+  }
+  document.getElementById("ou-matches-section").hidden = true;
+  showAccounts(result.accounts);
+  message.textContent = `${result.ou.name}: 허용된 ${result.accounts.length}개 계정의 최종 정책을 조회했습니다. 계정을 선택하세요.`;
+}
+
 function showMode(mode) {
   sourceSelect.value = mode;
   document.getElementById("server-mode").hidden = mode !== "server";
@@ -31,6 +65,7 @@ async function refresh() {
   authenticated = state.authenticated;
   document.getElementById("account-id").value = state.accountId || "";
   showMode(state.mode || "server");
+  if (state.mode === "file") showAccounts(state.manualAccounts || []);
 }
 
 form.addEventListener("submit", async event => {
@@ -84,14 +119,24 @@ Object.assign(errorDescriptions, {
   INVALID_POLICY_JSON: "정책 JSON 형식이 올바르지 않습니다.",
   REQUIRE_EFFECTIVE_POLICY: "원본 Tag Policy가 아닌 Effective Tag Policy JSON을 선택하세요.",
   POLICY_ACCOUNT_MISMATCH: "파일의 AWS 계정 ID가 현재 선택한 계정과 다릅니다.",
-  POLICY_FILE_TOO_LARGE: "정책 파일이 너무 큽니다 (최대 128KB).",
-  DUPLICATE_TAG_KEYS: "정책 파일에 중복된 태그 키가 있습니다."
+  POLICY_FILE_TOO_LARGE: "정책 파일 크기 제한입니다 (개별 128KiB / OU 묶음 2MiB).",
+  DUPLICATE_TAG_KEYS: "정책 파일에 중복된 태그 키가 있습니다.",
+  INVALID_OU_BUNDLE: "OU 정책 묶음 파일 구조가 올바르지 않습니다.",
+  INVALID_OU_SELECTOR: "OU ID 또는 이름을 확인하세요.",
+  OU_NOT_FOUND_OR_NOT_AUTHORIZED: "조회 가능한 OU가 없거나 권한이 없습니다.",
+  OU_DISCOVERY_UNAVAILABLE: "OU 탐색에 실패했습니다. Lambda 실행 역할·Organizations 권한을 확인하세요.",
+  OU_DISCOVERY_LIMIT: "OU 규모가 조회 한도를 초과했습니다. 관리자에게 오프라인 묶음 파일을 요청하세요."
 });
 
 sourceSelect.addEventListener("change", async () => {
   try {
     await request({ type: "SELECT_MODE", mode: sourceSelect.value, tabId: await activeTabId() });
     showMode(sourceSelect.value);
+    if (sourceSelect.value === "server") {
+      document.getElementById("ou-accounts-section").hidden = true;
+    } else {
+      await refresh();
+    }
     message.textContent = sourceSelect.value === "file" ? "파일 모드입니다. 현재 계정의 JSON 파일을 선택하세요." : "서버 연동 모드입니다.";
   } catch (error) {
     message.textContent = `모드 변경 실패: ${errorDescriptions[error.message] || error.message}`;
@@ -102,18 +147,50 @@ sourceSelect.addEventListener("change", async () => {
 document.getElementById("policy-file").addEventListener("change", async event => {
   const file = event.target.files?.[0];
   if (!file) return;
-  if (file.size > 131_072) {
+  if (file.size > 2_097_152) {
     message.textContent = errorDescriptions.POLICY_FILE_TOO_LARGE;
     return;
   }
   try {
     const result = await request({ type: "IMPORT_POLICY", content: await file.text(), tabId: await activeTabId() });
-    message.textContent = `파일 적용 완료: 계정 ${result.accountId}, 태그 키 ${result.tagKeyCount}개`;
     await refresh();
+    if (result.accounts) {
+      showAccounts(result.accounts);
+      message.textContent = `OU ${result.ou.name}: ${result.accountCount}개 계정 정책 파일 적용 완료. 아래에서 계정을 선택하세요.`;
+    } else {
+      message.textContent = `파일 적용 완료: 계정 ${result.accountId}, 태그 키 ${result.tagKeyCount}개`;
+    }
   } catch (error) {
     message.textContent = `가져오기 실패: ${errorDescriptions[error.message] || error.message}`;
   } finally {
     event.target.value = "";
+  }
+});
+
+document.getElementById("ou-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const selector = document.getElementById("ou-selector").value.trim();
+  try {
+    if (selector.startsWith("ou-")) await loadOu(selector, "");
+    else await loadOu("", selector);
+  } catch (error) {
+    message.textContent = `OU 조회 실패: ${errorDescriptions[error.message] || error.message}`;
+  }
+});
+
+document.getElementById("use-ou-match").addEventListener("click", async () => {
+  try { await loadOu(document.getElementById("ou-matches").value, ""); }
+  catch (error) { message.textContent = `OU 조회 실패: ${errorDescriptions[error.message] || error.message}`; }
+});
+
+document.getElementById("use-ou-account").addEventListener("click", async () => {
+  const accountId = document.getElementById("ou-accounts").value;
+  try {
+    await request({ type: "SELECT_ACCOUNT", accountId, tabId: await activeTabId() });
+    await refresh();
+    message.textContent = `${accountId} 계정을 선택했습니다. 현재 EC2 콘솔의 계정과 일치하는지 확인하세요.`;
+  } catch (error) {
+    message.textContent = `계정 선택 실패: ${errorDescriptions[error.message] || error.message}`;
   }
 });
 

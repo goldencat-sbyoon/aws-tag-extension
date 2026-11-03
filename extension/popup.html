@@ -33,12 +33,30 @@
     </label>
     <section id="server-mode">
       <button id="test-api" type="button">Private API 연결 테스트</button>
+      <form id="ou-form">
+        <label>OU ID 또는 OU 이름
+          <input id="ou-selector" placeholder="ou-xxxx-yyyyyyyy / Production" maxlength="128" required />
+        </label>
+        <button type="submit">OU 하위 모든 계정 정책 조회</button>
+      </form>
+      <section id="ou-matches-section" hidden>
+        <label>동일한 이름의 OU가 있습니다. 경로를 선택하세요.
+          <select id="ou-matches"></select>
+        </label>
+        <button id="use-ou-match" type="button">선택한 OU 조회</button>
+      </section>
     </section>
     <section id="file-mode" hidden>
-      <label>Effective Tag Policy JSON 파일
+      <label>계정별 Effective Policy 또는 OU 묶음 JSON
         <input id="policy-file" type="file" accept=".json,application/json" />
       </label>
-      <p>선택한 AWS 계정에 파일을 저장해 사용합니다. 서버 호출·JWT 로그인이 필요하지 않습니다.</p>
+      <p>OU 묶음 파일은 모든 하위 계정 정책을 함께 저장합니다. 서버 호출·JWT 로그인은 필요하지 않습니다.</p>
+    </section>
+    <section id="ou-accounts-section" hidden>
+      <label>가져온 계정 목록
+        <select id="ou-accounts"></select>
+      </label>
+      <button id="use-ou-account" type="button">이 계정으로 태그 추천</button>
     </section>
     <p>현재 콘솔의 계정 ID와 일치하는지 확인하세요. 계정 ID만으로 권한이 부여되지는 않습니다.</p>
     <p id="message" role="status" aria-live="polite"></p>

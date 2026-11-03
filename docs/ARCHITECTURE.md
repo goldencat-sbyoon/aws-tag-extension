@@ -18,6 +18,7 @@ flowchart TB
   G["Private REST API Gateway"]
   A["TOKEN Lambda Authorizer: JWKS·JWT 검증"]
   L["Policy API Lambda: 계정 접근 검사"]
+  D["OU 탐색 Lambda: 허용된 계정 목록"]
   T["대상 계정 STS AssumeRole"]
   O["AWS Organizations Effective Tag Policy"]
   B --> I
@@ -25,6 +26,8 @@ flowchart TB
   V --> G
   G --> A
   A --> L
+  A --> D
+  D --> O
   L --> T
   T --> O
 ```
@@ -129,3 +132,21 @@ flowchart TB
 ```
 
 원본 Organizations Tag Policy는 병합 전 정책이므로 수동 입력으로 사용하지 않는다. 상세 절차는 [수동 정책 파일 가이드](MANUAL_POLICY.md) 참고.
+
+## 9. OU ID/이름 기반 조회
+
+```mermaid
+flowchart TD
+  U["팝업 OU ID/이름 선택"] --> D["OU 탐색 Lambda"]
+  D --> A["조직 하위 OU·활성 계정 탐색"]
+  A --> G["JWT 계정 인가 필터링"]
+  G --> P["기존 계정별 Policy Lambda 호출"]
+  P --> R["계정별 최종 Effective Policy"]
+```
+
+- OU 조회 Lambda는 Organizations 탐색 전용 관리 계정 역할을 사용합니다. 정책 읽기는 계정별 역할/인가를 유지합니다.
+- 이름 중복은 **접근 허용된 OU만** 경로·ID 후보로 표시합니다.
+- 파일 모드는 관리자가 동일한 OU를 재귀 조회하여 생성한 JSON 묶음을 계정별로 저장합니다. 서버 호출 없이 정책을 표시합니다.
+- 대규모 OU에서는 API Gateway 타임아웃/Browser 백그라운드 수명 문제가 있을 수 있어 비동기 Job 도입을 후속 과제로 남깁니다.
+
+[OU 상세 가이드](OU_POLICY.md)

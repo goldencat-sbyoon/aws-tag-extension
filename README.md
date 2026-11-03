@@ -12,12 +12,15 @@ AWS EC2 콘솔의 Tag Key 입력란에 AWS Organizations **Effective Tag Policy*
 - [배포·운영 체크리스트](docs/DEPLOYMENT.md)
 - [오프라인 정책 파일 가져오기](docs/MANUAL_POLICY.md)
 - [Private REST API 직접 호출 테스트](docs/PRIVATE_API_TESTING.md)
+- [OU ID/이름 및 하위 계정 최종 정책 조회](docs/OU_POLICY.md)
 
 ## 구성
 
 - `extension/`: 브라우저 공통 WebExtensions 코드. Chrome/Firefox Manifest V3 별도 빌드.
 - `backend/authorizer.py`: 사내 RS256 JWT를 JWKS로 검증하는 **Private REST API** TOKEN Lambda Authorizer (IAM Policy 응답).
 - `backend/policy_api.py`: JWT 사용자 권한을 확인하고 계정별 AWS Organizations Effective Tag Policy 조회.
+- `backend/ou_api.py`, `backend/org_core.py`: OU ID/이름 탐색 및 하위 활성 계정 조회. JWT 계정 권한에 따라 결과 필터링.
+- `scripts/export_ou_policies.py`: 관리자가 OU의 모든 활성 계정 최종 정책을 하나의 오프라인 JSON으로 추출.
 - `scripts/build.mjs`: `dist/chrome`, `dist/firefox` 패키지 생성.
 
 ## 로컬 빌드
@@ -38,6 +41,8 @@ EC2 콘솔 탭에서 팝업을 열어 **조회할 AWS 계정 ID 12자리**를 �
 **서버 연동 모드:** 사내 로그인 API로 인증하고 JWT를 사용해 Private REST API Gateway를 호출합니다. 사내망/VPN과 VPCE 연결이 필요합니다.
 
 **정책 파일 모드:** 사내 담당자가 AWS Organizations에서 내려받은 **계정별 Effective Tag Policy JSON**을 팝업에서 선택합니다. 정책 키 조회에 **VPN·API Gateway·JWT가 필요하지 않으며**, 파일은 확장 로컬 저장소에 계정별로 저장됩니다. [정책 파일 추출 및 배포 안내](docs/MANUAL_POLICY.md)를 참조하세요.
+
+**OU ID 또는 이름 조회:** 서버 모드에서는 `OU 하위 모든 계정 정책 조회`를 선택하면 계정별 권한을 확인하고 최종 정책을 모두 조회한 뒤 계정을 선택할 수 있습니다. 파일 모드에서는 관리자가 `scripts/export_ou_policies.py --ou-id ... --output ...` 또는 `--ou-name ...`으로 OU 전체 JSON 묶음을 생성하여 전달합니다. OU는 `DescribeEffectivePolicy`에 직접 지정할 수 없어 하위 계정마다 조회합니다. [OU 가이드](docs/OU_POLICY.md)를 참고하세요.
 
 팝업의 **Private API 연결 테스트** 버튼은 캐시를 사용하지 않고 실제 API를 다시 호출하여 태그 키 개수를 확인합니다. 사내 VPN/DNS/VPCE가 정상 동작할 때만 성공하며, HTTP 응답과 네트워크 오류를 구분해 표시합니다. [실제 호출 테스트 가이드](docs/PRIVATE_API_TESTING.md)를 참고하세요.
 
@@ -75,6 +80,8 @@ Python 3.12+, 배포 의존성: `backend/requirements.txt` (`boto3`, `PyJWT[cryp
 `subjects` 또는 `groups` 중 한 조건에 매칭돼야 접근할 수 있습니다. 둘 다 빈 배열이면 **접근 거부**입니다. 역할 ARN은 서버 설정에서만 선택하며 클라이언트 요청 값을 사용하지 않습니다. 실제 서비스에서는 대규모 매핑을 환경변수 대신 Parameter Store/DynamoDB 등으로 옮기세요.
 
 **API Gateway**: REST API (`Endpoint Type=PRIVATE`), `GET /v1/accounts/{accountId}/tag-policy` → Lambda Proxy Integration `policy_api.lambda_handler`; TOKEN Lambda Authorizer → `authorizer.lambda_handler`; Token source `Authorization`. `backend/private-api-resource-policy.example.json`의 `aws:SourceVpce` 조건을 실제 VPCE ID로 변경하여 리소스 정책을 적용합니다. REST TOKEN Authorizer가 요청별 `methodArn`에 대한 IAM 정책을 반환하므로 **Authorizer 결과 캐싱 TTL은 0초**로 구성합니다. JWT 인증 없는 공개 경로는 만들지 않습니다.
+
+OU 기능을 위해 `GET /v1/organizational-units/accounts` → `ou_api.lambda_handler`를 같은 Private REST API 및 TOKEN Authorizer 아래 추가합니다. 별도 `ORG_DISCOVERY_ROLE_ARN`(관리 계정의 OU 탐색 전용 역할)이 필요하며 역할의 IAM/배포 방법은 [OU 가이드](docs/OU_POLICY.md) 및 [IAM 예시](backend/iam-examples.md)를 참고하세요.
 
 사용자 PC는 사내망/VPN에 연결되어 있어야 하고, 사내 DNS와 네트워크가 `execute-api` Interface VPC Endpoint를 올바르게 해석·라우팅해야 합니다. Private API는 인터넷에서 직접 호출할 수 없으며, 사내망/VPN 연결만으로 통신이 자동 보장되는 것도 아닙니다. 네트워크 구성은 [배포 가이드](docs/DEPLOYMENT.md)를 참고하세요.
 

@@ -15,6 +15,8 @@ AWS EC2 콘솔에서 Tag Key 입력란에 AWS Organizations Effective Tag Policy
 | STS AssumeRole 후 Effective Tag Policy 조회 | 구현 | 대상 계정 역할 필요 |
 | 오프라인 Effective Tag Policy JSON 가져오기 | 구현 | JWT·Private API 없이 계정별 로컬 저장 |
 | 정책 소스 선택 | 구현 | EC2 콘솔 탭별 서버/파일 모드 선택 |
+| OU ID/이름 탐색 및 하위 계정 정책 조회 | 구현 | 서버 모드: JWT 계정 인가, 계정별 정책 로드 |
+| OU 전체 정책 JSON 내보내기·가져오기 | 구현 | 파일 모드: 관리자가 내보낸 계정별 묶음 JSON |
 | EC2 Tag Key 입력란 탐지 및 추천 UI | 초기 구현 | 실제 콘솔 DOM 테스트 필요 |
 | 태그 값 제약 UI | 미구현 | API 응답에는 값 제약 정보 포함 |
 | 임의 태그 키 입력 차단 | 미구현 | AWS 정책 수준의 차단과 별개 |
@@ -40,12 +42,15 @@ AWS EC2 콘솔에서 Tag Key 입력란에 AWS Organizations Effective Tag Policy
 - 다른 탭에서 다른 계정을 선택할 수 있으나 **실제 콘솔의 계정 ID와 사용자 선택의 일치 여부는 현재 자동 검증하지 못한다.**
 - 파일 모드는 계정별 로컬 정책을 사용하며 128KiB·500키 제한, 원본 병합 연산자 미지원. 최신 정책은 사용자가 다시 가져와야 한다.
 - AWS CLI 응답의 `TargetId`는 현재 계정과 대조한다. 순수 `tags` JSON에는 계정 정보가 없어 수동 확인이 필요하다.
+- OU를 직접 `DescribeEffectivePolicy` 대상으로 사용하지 않는다. 활성 하위 계정마다 최종 정책을 읽고 UI에서 현재 계정을 선택한다. 이름 중복 시 OU 경로·ID를 표시한다.
 
 ## 3. 브라우저 아키텍처
 
 | 파일 | 책임 |
 | --- | --- |
-| `extension/background.js` | 로그인 API 요청, JWT 보관, 계정·소스 선택, Private API 호출 및 로컬 파일 정책 관리 |
+| `extension/background.js` | 로그인 API 요청, JWT 보관, 계정·소스 선택, OU 계정 정책 조회 및 로컬 파일 정책 관리 |
+| `backend/ou_api.py` | 별도 탐색 역할로 OU 재귀 탐색, 허용된 계정만 반환 |
+| `scripts/export_ou_policies.py` | 전체 활성 OU 계정의 Effective Policy JSON 묶음 생성 |
 | `extension/popup.html/js/css` | 로그인, 계정·소스 선택, JSON 파일 가져오기 UI |
 | `extension/content.js` | EC2 입력란 감지, 드롭다운 부착, 기본 입력값 업데이트 |
 | `scripts/build.mjs` | Chrome/Firefox 개별 Manifest·설정 생성 |
@@ -111,3 +116,4 @@ Effective Policy는 상속·병합된 결과이므로 `@@assign` 같은 원본 �
 
 실제 VPN 경유 호출 절차는 [Private API 테스트 가이드](PRIVATE_API_TESTING.md)를 참고.
 오프라인 배포·파일 가져오기는 [수동 정책 파일 가이드](MANUAL_POLICY.md)를 참고.
+OU ID/이름과 하위 계정 정책 조회는 [OU 가이드](OU_POLICY.md)를 참고.

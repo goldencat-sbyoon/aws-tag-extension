@@ -8,6 +8,7 @@
 4. **Policy Lambda:** `sub/groups`와 서버 측 계정 allowlist를 대조. 허용된 대상 IAM 역할만 AssumeRole.
 5. **대상 계정:** AWS Organizations Effective Tag Policy 읽기만 허용.
 6. **오프라인 파일 모드:** 사용자에게 배포한 JSON 파일이 정책 데이터의 신뢰 원천. JWT·서버 측 계정 인가는 이 모드에서 수행되지 않음.
+7. **OU 탐색 Lambda:** 조직 관리 계정의 읽기 전용 역할로 OU·계정 목록을 탐색하며, 검증된 JWT 사용자와 계정 allowlist를 대조한 **허용된 계정만** 결과에 포함.
 
 ## JWT 요구사항
 
@@ -47,6 +48,8 @@
 - REST TOKEN Authorizer 캐시는 기본적으로 비활성화(TTL=0). 단일 요청 `methodArn`에 한정한 IAM Allow 정책을 캐시하면 다른 계정 리소스 경로에 사용 시 예상치 못한 거부가 발생할 수 있다.
 - CloudWatch에서 401/403/5xx 급증 및 AssumeRole 거부를 감시한다.
 - `ACCOUNT_AUTHZ_JSON`이 커지면 중앙 권한 저장소로 옮긴다.
+- OU 이름의 중복 후보를 반환할 때도 계정 접근 권한이 없는 OU의 ID·경로·계정 정보는 공개하지 않는다.
+- OU 조회는 인증된 사용자가 허용된 계정의 목록과 이름을 볼 수 있게 한다. 목록 자체도 민감할 수 있으므로 OU 조회 접근 및 감사를 관리한다.
 - 브라우저 확장 업데이트, 콘솔 DOM 변화, 라이브러리 취약점 관리 절차를 마련한다.
 
 ## 비보장 사항
