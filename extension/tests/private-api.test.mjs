@@ -91,7 +91,9 @@ test("manual Effective Policy works without JWT and makes no network request", a
     environment: { tag_key: "Environment", tag_value: ["dev", "prod"] },
     costcenter: { tag_key: "CostCenter" }
   }});
-  const imported = await send("IMPORT_POLICY", { tabId: 10, content: policy });
+  const missingId = await send("IMPORT_POLICY", { tabId: 10, content: policy });
+  assert.equal(missingId.error, "ACCOUNT_ID_REQUIRED", "raw policies without account metadata ask for an ID");
+  const imported = await send("IMPORT_POLICY", { tabId: 10, content: policy, accountId });
   assert.equal(imported.ok, true);
   assert.equal(imported.data.tagKeyCount, 2);
   delete values.authSession;
@@ -107,10 +109,10 @@ test("manual Effective Policy works without JWT and makes no network request", a
 test("manual import rejects account mismatch and raw merge operators", async () => {
   const { send } = setup();
   const mismatch = await send("IMPORT_POLICY", { tabId: 10,
-    content: JSON.stringify({ accountId: "222233334444", tagKeys: [] }) });
+    accountId, content: JSON.stringify({ accountId: "222233334444", tagKeys: [] }) });
   assert.equal(mismatch.error, "POLICY_ACCOUNT_MISMATCH");
   const rawPolicy = await send("IMPORT_POLICY", { tabId: 10,
-    content: JSON.stringify({ tags: { environment: {
+    accountId, content: JSON.stringify({ tags: { environment: {
       tag_key: { "@@assign": "Environment" }, tag_value: { "@@assign": ["prod"] }
     } } }) });
   assert.equal(rawPolicy.error, "INVALID_POLICY_JSON");
@@ -125,12 +127,39 @@ test("CLI EffectivePolicy wrapper verifies target account and policy type", asyn
   assert.equal(result.data.tagKeyCount, 1);
   assert.equal(requests.length, 0);
   wrapped.EffectivePolicy.TargetId = "222233334444";
-  assert.equal((await send("IMPORT_POLICY", { tabId: 10, content: JSON.stringify(wrapped) })).error,
+  assert.equal((await send("IMPORT_POLICY", { tabId: 10, accountId, content: JSON.stringify(wrapped) })).error,
     "POLICY_ACCOUNT_MISMATCH");
   wrapped.EffectivePolicy.TargetId = accountId;
   wrapped.EffectivePolicy.PolicyType = "BACKUP_POLICY";
   assert.equal((await send("IMPORT_POLICY", { tabId: 10, content: JSON.stringify(wrapped) })).error,
     "REQUIRE_EFFECTIVE_POLICY");
+});
+
+test("file with embedded account ID auto-selects account even without prior selection", async () => {
+  const { send, values, requests } = setup();
+  delete values.accountByTab;
+  delete values.authSession;
+  const secondId = "444455556666";
+  const wrapped = { EffectivePolicy: { TargetId: secondId, PolicyType: "TAG_POLICY",
+    PolicyContent: JSON.stringify({ tags: { costcenter: { tag_key: "CostCenter" } } }) } };
+  const imported = await send("IMPORT_POLICY", { tabId: 10, content: JSON.stringify(wrapped) });
+  assert.equal(imported.data.accountId, secondId);
+  assert.equal(values.accountByTab["10"], secondId);
+  assert.equal((await send("GET_POLICY", { tabId: 10, accountId: secondId })).data.tagKeys[0].key, "CostCenter");
+  assert.equal(requests.length, 0);
+});
+
+test("API account lookup selects only after a successful authorized fetch", async () => {
+  const secondId = "444455556666";
+  const { send, values, requests } = setup({ accountResponses: {
+    [secondId]: { status: 403, body: { error: "ACCOUNT_ACCESS_DENIED" } }
+  } });
+  const denied = await send("LOAD_ACCOUNT_POLICY", { tabId: 10, accountId: secondId });
+  assert.equal(denied.error, "ACCOUNT_ACCESS_DENIED");
+  assert.equal(values.accountByTab["10"], accountId);
+  const success = await send("LOAD_ACCOUNT_POLICY", { tabId: 10, accountId });
+  assert.equal(success.data.tagKeyCount, 1);
+  assert.equal(requests.length, 2);
 });
 
 test("OU server lookup retrieves every authorized descendant account's effective policy", async () => {

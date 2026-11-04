@@ -4,9 +4,9 @@
 
 ## 서버 모드: Private REST API → Lambda → Organizations
 
-1. EC2 콘솔에서 확장 팝업을 열어 사내 RS256 JWT 로그인 후 `서버 연동`을 선택합니다.
-2. `OU ID 또는 OU 이름`에 `ou-xxxx-yyyyyyyy` 또는 `Production`처럼 정확한 이름을 입력합니다.
-3. `OU 하위 모든 계정 정책 조회`를 누릅니다.
+1. EC2 콘솔에서 확장 팝업의 `API 연동`을 선택한 뒤 사내 RS256 JWT 로그인을 진행합니다.
+2. 조회 대상을 `OU 이름 / ID`로 변경하고 `ou-xxxx-yyyyyyyy` 또는 `Production`을 입력합니다.
+3. `하위 계정 정책 가져오기`를 누릅니다.
 4. 중복 OU 이름이 있을 때는 **전체 경로와 OU ID 목록**에서 선택합니다.
 5. 백그라운드가 허용된 모든 활성 하위 계정의 Effective Policy를 조회합니다. 반환된 목록에서 현재 AWS 콘솔 계정을 고릅니다.
 6. EC2 Tag Key 필드를 클릭하면 **선택한 해당 계정의 정책**에 맞춘 키가 표시됩니다.

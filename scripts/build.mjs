@@ -31,7 +31,7 @@ for (const browser of ["chrome", "firefox"]) {
   const manifest = {
     manifest_version: 3,
     name: "AWS Tag Extension",
-    version: "0.1.0",
+    version: "0.2.0",
     description: "EC2 tag key suggestions from AWS Organizations Effective Tag Policy",
     permissions: ["storage", "activeTab"],
     host_permissions: [...new Set([login.origin + "/*", api.origin + "/*"])],

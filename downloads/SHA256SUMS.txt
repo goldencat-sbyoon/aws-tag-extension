@@ -1,2 +1,2 @@
-ad8bd40019427141990fc1bd45fa052cfd3532c2e07b1bb8837e67b93c5edb6c  aws-tag-extension-chrome-v0.1.0-offline.zip
-b5c34e87fffd12d624688389d02336f47557d2fd5089c2fb42b683f54ca1c242  aws-tag-extension-firefox-v0.1.0-dev.zip
+4695385f25da26d4b54e610ecd5ac0e23bdb61a44ccb58fa8ff42100e56dc6a5  aws-tag-extension-chrome-v0.2.0-offline.zip
+ac6a735521662565a6cf0fa9bfc6603a2c7e245f5ff525e9cceebf39a56b37c4  aws-tag-extension-firefox-v0.2.0-dev.zip

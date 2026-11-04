@@ -45,10 +45,10 @@ unset JWT_ACCESS_TOKEN
 1. Chrome 또는 Firefox를 사내망/VPN 연결 상태에서 실행합니다.
 2. 빌드 시 `BUILD_API_BASE_URL`에 **Private REST API + 스테이지** 주소를 전달합니다.
 3. 확장 프로그램을 로드하고 EC2 콘솔 탭을 엽니다.
-4. 확장 팝업에서 사내 JWT 로그인 API로 로그인합니다.
-5. 현재 콘솔 계정과 동일한 AWS 계정 ID(12자리)를 설정합니다.
-6. **Private API 연결 테스트**를 클릭합니다.
-7. 성공 시 `연결 성공: 계정 ..., 태그 키 N개 조회`가 표시됩니다.
+4. 확장 팝업에서 **API 연동**을 선택하고 사내 JWT 로그인 API로 로그인합니다.
+5. **AWS 계정 ID** 조회를 선택하고 현재 콘솔 계정과 동일한 ID(12자리)를 입력합니다.
+6. **계정 정책 가져오기**를 클릭하면 실제 Private REST API를 호출합니다.
+7. 성공 시 `계정 ...: 태그 키 N개를 가져왔습니다`가 표시됩니다.
 8. EC2 Tag Key 입력란을 클릭해 정책 키 추천 목록이 표시되는지 확인합니다.
 
 Chrome 개발자 도구에서는 `chrome://extensions` → 확장 프로그램 Service Worker **Inspect**를 사용할 수 있습니다. Firefox는 `about:debugging`에서 확장 **Inspect**로 진단합니다. 토큰·비밀번호를 로그에 출력하지 마세요.
@@ -74,7 +74,7 @@ HTTP 403은 API Gateway Resource Policy·Authorizer·백엔드 인가 모두에�
 - [ ] 다른 VPCE를 통한 요청 → 접근 거부.
 - [ ] 서명 변조/만료 JWT → API Gateway 거부.
 - [ ] 정상 JWT지만 허용되지 않은 계정 → 403 `ACCOUNT_ACCESS_DENIED`.
-- [ ] 연결 테스트 버튼이 캐시를 건너뛰고 실제 GET 요청을 다시 전송.
+- [ ] API 연동에서 새 계정 ID를 입력해 실제 GET 요청 및 응답 확인.
 - [ ] JWT 원문이 UI/콘솔 로그/네트워크 오류 메시지에 노출되지 않음.
 
 Private REST API의 사내망 호출은 VPN만 설치한다고 되는 것이 아닙니다. DNS 및 AWS Interface VPCE까지의 사설 라우팅이 선행되어야 합니다.

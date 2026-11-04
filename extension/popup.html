@@ -8,57 +8,81 @@
 </head>
 <body>
   <main>
-    <h1>AWS Tag Extension</h1>
-    <p>EC2 콘솔에서 회사 표준 태그 키를 추천합니다. 정책 소스를 선택하세요.</p>
-    <form id="login-form">
-      <label>사용자 ID<input id="username" autocomplete="username" required /></label>
-      <label>비밀번호<input id="password" type="password" autocomplete="current-password" required /></label>
-      <button type="submit">로그인</button>
-    </form>
-    <section id="signed-in" hidden>
-      <p>로그인되어 있습니다.</p>
-      <button id="logout" type="button">로그아웃</button>
-    </section>
-    <form id="account-form">
-      <label>AWS 계정 ID (12자리)
-        <input id="account-id" inputmode="numeric" pattern="[0-9]{12}" maxlength="12" placeholder="123456789012" required />
-      </label>
-      <button type="submit">조회 대상 계정 설정</button>
-    </form>
-    <label>태그 정책 가져오기 방식
-      <select id="source-mode">
-        <option value="server">서버 연동 (Private REST API)</option>
-        <option value="file">정책 파일 직접 가져오기</option>
-      </select>
-    </label>
-    <section id="server-mode">
-      <button id="test-api" type="button">Private API 연결 테스트</button>
-      <form id="ou-form">
-        <label>OU ID 또는 OU 이름
-          <input id="ou-selector" placeholder="ou-xxxx-yyyyyyyy / Production" maxlength="128" required />
-        </label>
-        <button type="submit">OU 하위 모든 계정 정책 조회</button>
-      </form>
-      <section id="ou-matches-section" hidden>
-        <label>동일한 이름의 OU가 있습니다. 경로를 선택하세요.
-          <select id="ou-matches"></select>
-        </label>
-        <button id="use-ou-match" type="button">선택한 OU 조회</button>
-      </section>
-    </section>
-    <section id="file-mode" hidden>
-      <label>계정별 Effective Policy 또는 OU 묶음 JSON
+    <header class="header">
+      <span class="brand-icon" aria-hidden="true">#</span>
+      <div>
+        <h1>AWS 태그 추천</h1>
+        <p class="subtitle">EC2 콘솔에서 사용할 정책을 선택하세요.</p>
+      </div>
+    </header>
+
+    <fieldset class="choices" aria-label="정책 불러오기 방식">
+      <legend>정책 불러오기</legend>
+      <label class="choice"><input type="radio" name="source-mode" value="file" /><span>정책 파일</span></label>
+      <label class="choice"><input type="radio" name="source-mode" value="server" /><span>API 연동</span></label>
+    </fieldset>
+
+    <section id="file-mode" class="panel" hidden>
+      <h2>JSON 파일 선택</h2>
+      <label>Effective Tag Policy 또는 OU 묶음
         <input id="policy-file" type="file" accept=".json,application/json" />
       </label>
-      <p>OU 묶음 파일은 모든 하위 계정 정책을 함께 저장합니다. 서버 호출·JWT 로그인은 필요하지 않습니다.</p>
+      <p class="hint">파일은 이 브라우저에만 저장되며 서버 로그인이 필요하지 않습니다.</p>
+      <form id="manual-account-form" hidden>
+        <p class="hint">파일에 계정 ID가 없어 직접 입력해야 합니다.</p>
+        <label>AWS 계정 ID (12자리)
+          <input id="manual-account-id" inputmode="numeric" pattern="[0-9]{12}" maxlength="12" placeholder="123456789012" required />
+        </label>
+        <button type="submit">파일 적용</button>
+      </form>
     </section>
-    <section id="ou-accounts-section" hidden>
-      <label>가져온 계정 목록
+
+    <section id="server-mode" class="panel" hidden>
+      <form id="login-form">
+        <h2>사내 로그인</h2>
+        <label>사용자 ID<input id="username" autocomplete="username" required /></label>
+        <label>비밀번호<input id="password" type="password" autocomplete="current-password" required /></label>
+        <button type="submit">로그인</button>
+      </form>
+      <div id="signed-in" class="session-info" hidden>
+        <span>● 사내 로그인 완료</span>
+        <button id="logout" type="button" class="text-button">로그아웃</button>
+      </div>
+
+      <div id="server-workflow" hidden>
+        <fieldset class="choices target-choices" aria-label="API 조회 대상">
+          <legend>조회 대상</legend>
+          <label class="choice"><input type="radio" name="target-type" value="account" checked /><span>AWS 계정 ID</span></label>
+          <label class="choice"><input type="radio" name="target-type" value="ou" /><span>OU 이름 / ID</span></label>
+        </fieldset>
+        <form id="account-form">
+          <label>AWS 계정 ID (12자리)
+            <input id="account-id" inputmode="numeric" pattern="[0-9]{12}" maxlength="12" placeholder="123456789012" required />
+          </label>
+          <button type="submit">계정 정책 가져오기</button>
+        </form>
+        <form id="ou-form" hidden>
+          <label>OU 이름 또는 ID
+            <input id="ou-selector" placeholder="Production 또는 ou-xxxx-xxxxxxxx" maxlength="128" required />
+          </label>
+          <button type="submit">하위 계정 정책 가져오기</button>
+        </form>
+        <section id="ou-matches-section" class="result" hidden>
+          <label>동일한 이름의 OU가 있습니다. 경로를 선택하세요.
+            <select id="ou-matches"></select>
+          </label>
+          <button id="use-ou-match" type="button">선택한 OU 조회</button>
+        </section>
+      </div>
+    </section>
+
+    <section id="ou-accounts-section" class="result" hidden>
+      <label>정책을 적용할 AWS 계정
         <select id="ou-accounts"></select>
       </label>
-      <button id="use-ou-account" type="button">이 계정으로 태그 추천</button>
+      <button id="use-ou-account" type="button">이 계정 적용</button>
     </section>
-    <p>현재 콘솔의 계정 ID와 일치하는지 확인하세요. 계정 ID만으로 권한이 부여되지는 않습니다.</p>
+    <p id="current-selection" class="current-selection" hidden></p>
     <p id="message" role="status" aria-live="polite"></p>
   </main>
   <script src="popup.js"></script>

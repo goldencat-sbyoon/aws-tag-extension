@@ -187,6 +187,15 @@ async function getSelectedAccount(tabId) {
   return data[ACCOUNT_KEY]?.[String(tabId)] || null;
 }
 
+async function setSelectedAccount(tabId, accountId) {
+  if (tabId === null) throw new Error("OPEN_EC2_CONSOLE_FIRST");
+  if (!/^[0-9]{12}$/.test(accountId)) throw new Error("INVALID_ACCOUNT_ID");
+  const data = await extensionApi().storage.session.get(ACCOUNT_KEY);
+  const mapping = data[ACCOUNT_KEY] || {};
+  mapping[String(tabId)] = accountId;
+  await extensionApi().storage.session.set({ [ACCOUNT_KEY]: mapping });
+}
+
 async function clearAccountUnlessIn(tabId, accounts) {
   const selected = await getSelectedAccount(tabId);
   if (!selected || accounts.some(item => item.accountId === selected)) return;
@@ -260,6 +269,16 @@ function normalizeImportedPolicy(content, accountId) {
     importedAt: new Date().toISOString(), source: "file" };
 }
 
+function identifyImportedAccount(document) {
+  const candidates = [document.accountId, document.EffectivePolicy?.TargetId, document.TargetId]
+    .filter(item => item !== undefined && item !== null);
+  if (candidates.some(id => typeof id !== "string" || !/^[0-9]{12}$/.test(id))) {
+    throw new Error("INVALID_ACCOUNT_ID");
+  }
+  if (new Set(candidates).size > 1) throw new Error("POLICY_ACCOUNT_MISMATCH");
+  return candidates[0] || null;
+}
+
 function normalizeOuBundle(content) {
   if (typeof content !== "string" || new TextEncoder().encode(content).length > MAX_BUNDLE_BYTES) {
     throw new Error("POLICY_FILE_TOO_LARGE");
@@ -320,14 +339,19 @@ extensionApi().runtime.onMessage.addListener((message, sender, respond) => {
           accountId, mode, manualImported: !!localData[MANUAL_KEY]?.[accountId], manualAccounts };
       }
       case "SELECT_ACCOUNT": {
-        if (!/^[0-9]{12}$/.test(message.accountId)) throw new Error("INVALID_ACCOUNT_ID");
+        const tabId = await resolveEc2Tab(sender, message);
+        await setSelectedAccount(tabId, message.accountId);
+        return { accountId: message.accountId };
+      }
+      case "LOAD_ACCOUNT_POLICY": {
+        if (sender.id !== extensionApi().runtime.id || sender.tab) throw new Error("UNTRUSTED_SENDER");
         const tabId = await resolveEc2Tab(sender, message);
         if (tabId === null) throw new Error("OPEN_EC2_CONSOLE_FIRST");
-        const data = await extensionApi().storage.session.get(ACCOUNT_KEY);
-        const mapping = data[ACCOUNT_KEY] || {};
-        mapping[String(tabId)] = message.accountId;
-        await extensionApi().storage.session.set({ [ACCOUNT_KEY]: mapping });
-        return { accountId: message.accountId };
+        if (await getMode(tabId) !== "server") throw new Error("FILE_MODE_ACTIVE");
+        const policy = await fetchPolicy(message.accountId);
+        // A failed/unauthorized lookup must not silently change the active account.
+        await setSelectedAccount(tabId, message.accountId);
+        return { accountId: message.accountId, tagKeyCount: policy.tagKeys.length };
       }
       case "SELECT_MODE": {
         if (sender.id !== extensionApi().runtime.id || sender.tab) throw new Error("UNTRUSTED_SENDER");
@@ -353,13 +377,17 @@ extensionApi().runtime.onMessage.addListener((message, sender, respond) => {
           return { ou: bundle.ou, accounts: bundle.accounts,
             accountCount: bundle.accounts.length };
         }
-        const accountId = await getSelectedAccount(tabId);
-        if (!accountId) throw new Error("ACCOUNT_NOT_SELECTED");
+        const embeddedAccountId = identifyImportedAccount(document);
+        const accountId = message.accountId || embeddedAccountId;
+        if (!accountId) throw new Error("ACCOUNT_ID_REQUIRED");
+        if (!/^[0-9]{12}$/.test(accountId)) throw new Error("INVALID_ACCOUNT_ID");
+        if (embeddedAccountId && embeddedAccountId !== accountId) throw new Error("POLICY_ACCOUNT_MISMATCH");
         const policy = normalizeImportedPolicy(message.content, accountId);
         const data = await extensionApi().storage.local.get(MANUAL_KEY);
         const policies = data[MANUAL_KEY] || {};
         policies[accountId] = policy;
         await extensionApi().storage.local.set({ [MANUAL_KEY]: policies });
+        await setSelectedAccount(tabId, accountId);
         await setMode(tabId, "file");
         return { accountId, tagKeyCount: policy.tagKeys.length, importedAt: policy.importedAt };
       }

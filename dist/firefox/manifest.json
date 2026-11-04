@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "AWS Tag Extension",
+  "version": "0.2.0",
+  "description": "EC2 tag key suggestions from AWS Organizations Effective Tag Policy",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://auth.example.invalid/*",
+    "https://api.example.invalid/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.console.aws.amazon.com/ec2/*",
+        "https://console.aws.amazon.com/ec2/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "aws-tag-extension@example.invalid",
+      "strict_min_version": "128.0"
+    }
+  }
+}

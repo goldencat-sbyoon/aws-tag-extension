@@ -14,16 +14,16 @@ node "${project_dir}/scripts/build.mjs"
 mkdir -p "${release_dir}"
 (
   cd "${project_dir}/dist/chrome"
-  zip -q -r -X "${release_dir}/aws-tag-extension-chrome-v0.1.0-offline.zip" .
+  zip -q -r -X "${release_dir}/aws-tag-extension-chrome-v0.2.0-offline.zip" .
 )
 (
   cd "${project_dir}/dist/firefox"
-  zip -q -r -X "${release_dir}/aws-tag-extension-firefox-v0.1.0-dev.zip" .
+  zip -q -r -X "${release_dir}/aws-tag-extension-firefox-v0.2.0-dev.zip" .
 )
 (
   cd "${release_dir}"
-  sha256sum aws-tag-extension-chrome-v0.1.0-offline.zip \
-    aws-tag-extension-firefox-v0.1.0-dev.zip > SHA256SUMS.txt
+  sha256sum aws-tag-extension-chrome-v0.2.0-offline.zip \
+    aws-tag-extension-firefox-v0.2.0-dev.zip > SHA256SUMS.txt
 )
 
 echo "Offline test packages created in ${release_dir}"
