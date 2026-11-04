@@ -206,9 +206,10 @@ async function clearAccountUnlessIn(tabId, accounts) {
 }
 
 async function getMode(tabId) {
-  if (tabId === null) return "server";
+  if (tabId === null) return null;
   const data = await extensionApi().storage.session.get(MODE_KEY);
-  return data[MODE_KEY]?.[String(tabId)] === "file" ? "file" : "server";
+  const mode = data[MODE_KEY]?.[String(tabId)];
+  return mode === "file" || mode === "server" ? mode : null;
 }
 
 async function setMode(tabId, mode) {
@@ -409,7 +410,9 @@ extensionApi().runtime.onMessage.addListener((message, sender, respond) => {
         const tabId = await resolveEc2Tab(sender, message);
         if (tabId === null) throw new Error("UNTRUSTED_PAGE");
         if (message.accountId !== await getSelectedAccount(tabId)) throw new Error("ACCOUNT_NOT_SELECTED");
-        if (await getMode(tabId) === "file") return getManualPolicy(message.accountId);
+        const activeMode = await getMode(tabId);
+        if (!activeMode) throw new Error("SOURCE_MODE_NOT_SELECTED");
+        if (activeMode === "file") return getManualPolicy(message.accountId);
         return fetchPolicy(message.accountId);
       case "TEST_CONNECTION": {
         if (sender.id !== extensionApi().runtime.id || sender.tab) throw new Error("UNTRUSTED_SENDER");

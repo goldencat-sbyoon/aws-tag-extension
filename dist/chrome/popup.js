@@ -93,8 +93,8 @@ async function refresh() {
   const state = await request({ type: "STATUS", tabId: await activeTabId() });
   authenticated = state.authenticated;
   document.getElementById("account-id").value = state.accountId || "";
-  showMode(state.mode || "server");
-  showCurrentAccount(state.mode === "file" && !state.manualImported ? null : state.accountId);
+  showMode(state.mode);
+  showCurrentAccount(!state.mode || (state.mode === "file" && !state.manualImported) ? null : state.accountId);
   // A previously imported OU bundle is still usable after the popup is reopened.
   if (state.mode === "file") showAccounts(state.manualAccounts?.length > 1 ? state.manualAccounts : []);
 }

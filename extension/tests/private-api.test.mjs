@@ -11,7 +11,7 @@ const apiBaseUrl = "https://private-api.company.example/prod";
 function setup({ apiResponse = { status: 200, body: { accountId, tagKeys: [{ key: "Environment" }] } },
   ouResponse, accountResponses = {}, failNetwork = false } = {}) {
   const values = { authSession: { token: "test.jwt.token", expiresAt: Date.now() + 300_000 },
-    accountByTab: { "10": accountId } };
+    accountByTab: { "10": accountId }, sourceModeByTab: { "10": "server" } };
   const localValues = {};
   const requests = [];
   let listener;
@@ -83,6 +83,15 @@ test("unselected or mismatched account cannot be queried", async () => {
   const { send, requests } = setup();
   assert.equal((await send("GET_POLICY", { accountId: "222233334444", tabId: 10 })).error, "ACCOUNT_NOT_SELECTED");
   assert.equal(requests.length, 0);
+});
+
+test("new popup starts with a source choice, not an implicit API login flow", async () => {
+  const { send, values } = setup();
+  delete values.sourceModeByTab;
+  assert.equal((await send("STATUS", { tabId: 10 })).data.mode, null);
+  assert.equal((await send("GET_POLICY", { tabId: 10, accountId })).error, "SOURCE_MODE_NOT_SELECTED");
+  await send("SELECT_MODE", { tabId: 10, mode: "server" });
+  assert.equal((await send("STATUS", { tabId: 10 })).data.mode, "server");
 });
 
 test("manual Effective Policy works without JWT and makes no network request", async () => {
